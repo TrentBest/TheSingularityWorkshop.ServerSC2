@@ -12,6 +12,7 @@ var checks = new (string Name, Action Run)[]
     ("disposing a lease makes its slot reusable", DisposedLeaseIsReusable),
     ("lease disposal is idempotent", LeaseDisposalIsIdempotent),
     ("adapter maps immutable ServerApp assignments", AdapterMapsAssignment),
+    ("adapter rejects mismatched observed match identity", AdapterRejectsMismatchedObservedMatch),
     ("adapter rejects wrong game before allocating ports", AdapterRejectsWrongGame),
     ("adapter releases a lease when runtime startup fails", AdapterReleasesOnStartupFailure)
 };
@@ -154,6 +155,27 @@ static void AdapterMapsAssignment()
     adapter.DisposeAsync().AsTask().GetAwaiter().GetResult();
 }
 
+
+static void AdapterRejectsMismatchedObservedMatch()
+{
+    var pool = new Sc2PortLeasePool(ValidProfile());
+    var runtime = new FakeSc2Runtime();
+    var adapter = CreateAdapter(pool, runtime);
+    adapter.StartAsync(new GameSessionStartRequest(TestAssignment(), "session-004"))
+        .AsTask().GetAwaiter().GetResult();
+    runtime.StatusToReturn = new Sc2RuntimeSessionSnapshot(
+        "different-match", "session-004", GameSessionState.Ready, DateTimeOffset.UtcNow);
+    try
+    {
+        adapter.GetStatusAsync("session-004").AsTask().GetAwaiter().GetResult();
+        throw new InvalidOperationException("Expected mismatched match identity rejection.");
+    }
+    catch (InvalidOperationException exception) when (exception.Message.Contains("invalid or mismatched", StringComparison.Ordinal)) { }
+    adapter.StopAsync("session-004").AsTask().GetAwaiter().GetResult();
+    Assert(pool.ActiveLeaseCount == 0, "Mismatched status cleanup did not release the port lease.");
+    adapter.DisposeAsync().AsTask().GetAwaiter().GetResult();
+}
+
 static void AdapterRejectsWrongGame()
 {
     var pool = new Sc2PortLeasePool(ValidProfile());
@@ -202,7 +224,7 @@ sealed class FakeSc2Runtime : ISc2SessionRuntime
 
     public ValueTask<Sc2RuntimeSessionSnapshot?> GetStatusAsync(
         string sessionId, CancellationToken cancellationToken = default) =>
-        ValueTask.FromResult<Sc2RuntimeSessionSnapshot?>(null);
+        ValueTask.FromResult(StatusToReturn);
 
     public ValueTask StopAsync(string sessionId, CancellationToken cancellationToken = default) =>
         ValueTask.CompletedTask;
