@@ -22,13 +22,13 @@ See SIMULATION_SERVER.md and SC2_RUNTIME_PROTOCOL.md.
 
 ## Verification
 
-The GitHub Actions workflow checks out ServerApp's development source, installs .NET 8 with `actions/setup-dotnet@v4`, builds ServerSC2.Core and the adapter, and runs contract checks. CI run 47 for the initial process-supervisor commit completed successfully. The subsequent map-profile pinning commit triggered run 48, which was still in progress at the last check. This environment has no local .NET SDK, so no local build was run. Neither CI success nor source checks prove live SC2 integration.
+The GitHub Actions workflow checks out ServerApp's development source, installs .NET 8 with `actions/setup-dotnet@v4`, builds ServerSC2.Core and the adapter, and runs contract checks. CI run 56 for the trusted path-normalization revision completed successfully; the preceding player-ID correlation revision also passed. SingularityBot CI passed for the structured lifecycle markers and fail-closed CreateGame/JoinGame response handling. This environment has no local .NET SDK, so no local build was run. CI success proves compilation and contract checks, not live SC2 integration.
 
 ## Next work
 
 1. Verify the host-side `--CreateGame --Map` path against a runnable SC2 build and confirm both runners join the same game with distinct player IDs.
 2. Supply the trusted `ISc2BotRunnerResolver` backed by ServerApp's immutable build registry/artifact store; verify content hashes before launch.
-3. Validate that runner result markers match the player IDs observed at join and map them to the immutable participant assignments.
+3. Persist the result values and map them to the immutable participant assignments; current runtime checks that each result marker's player ID matches that runner's join acknowledgement but does not yet expose durable result evidence.
 4. Capture and validate SC2-authoritative result evidence and save the replay, binding both to match/session, map/game version, and build hashes.
 5. Exercise timeout, early exit, partial startup, cancellation, and host disposal; verify all four process trees are stopped and ports released.
 6. Add append-oriented durable session history after lifecycle evidence is trustworthy.
