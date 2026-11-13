@@ -1,30 +1,27 @@
 # ServerSC2 Pause Point
 
-## Repository state
+## Current state
 
-- Repository bootstrapped on `development`; `master` remains the empty initial baseline.
-- Added ownership and trust-boundary documentation.
-- Added `ServerSC2.Core` with trusted profile validation and a bounded process-local game/start port-pair lease pool.
-- Added a dependency-free contract-check executable for profile validation, allocation uniqueness, exhaustion, and lease reuse.
+- Repository work is on `development`; branches are exactly `master` and `development`.
+- `ServerSC2.Core` contains trusted profile validation and bounded process-local game/start port leases.
+- `ServerSC2.ServerAppAdapter` implements ServerApp.Core's `IGameSessionAdapter` contract through a source project reference. It validates game and adapter-version identity, translates the immutable two-participant assignment into a typed SC2 launch request, and retains/releases its port lease with session lifecycle.
+- `ISc2SessionRuntime` is an injected boundary only. No concrete SC2 process supervisor or bot launcher exists yet.
+- Contract checks cover profile/lease behavior and the adapter's assignment mapping, wrong-game rejection, and startup-failure lease cleanup.
 
-## Not implemented yet
+## Verification
 
-- ServerApp `IGameSessionAdapter` bridge.
-- Actual SC2 executable discovery/launch and process supervision.
-- Participant process launch/attachment and readiness.
-- OS-level port conflict handling, process cleanup, and crash recovery.
-- Replay capture, authoritative result evidence, and durable match/session history.
-- Trusted role manifest integration and FSM_COS RuntimeAssembly acquisition.
-- End-to-end local 1v1 test against an installed SC2 runtime.
+The GitHub Actions workflow now checks out ServerApp's `development` source alongside ServerSC2, builds both core and adapter projects, and runs the contract-check executable. The latest commit status query did not return a check result. The current environment has no .NET SDK, so the authored checks have not been executed locally. Do not report them as passing until CI provides evidence.
 
-## Resume order
+## Next work
 
-1. Verify source builds and contract checks in CI.
-2. Add a ServerApp adapter project referencing the exact ServerApp.Core contract (source checkout in CI; package only after a separately authorized release).
-3. Define the trusted SC2 installation/profile resolver and process supervisor interface.
-4. Implement a real local process launch with bounded cancellation, readiness, drain, termination observation, and cleanup.
-5. Integrate SingularityBot's existing ladder connection path without moving strategy into ServerSC2.
-6. Capture and validate replay/result evidence; persist match history without a database.
-7. Prove one local 1v1 match before exposing network admission or matchmaking.
+1. Verify the exact current SingularityBot ladder-client implementation and its port topology.
+2. Resolve the SC2API multiplayer process topology from the official protocol and the bot implementation together.
+3. Implement the trusted process supervisor with fixed host-owned executable paths and argument construction.
+4. Launch both independently admitted bot builds and establish protocol-level readiness.
+5. Capture authoritative result and replay evidence, then add append-oriented durable session history.
 
-No merge, NuGet publication, release, deployment, or branch deletion has been performed or is implied.
+See [the architecture](ARCHITECTURE.md) and [SC2 runtime protocol notes](SC2_RUNTIME_PROTOCOL.md).
+
+## Boundaries
+
+No NuGet publishing, merge, release, deployment, or branch deletion has been performed. No database or ORM has been introduced.
