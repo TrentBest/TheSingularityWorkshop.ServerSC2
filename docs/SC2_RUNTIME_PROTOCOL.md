@@ -170,3 +170,12 @@ ServerSC2 is a host for compatible SC2 bots, not a SingularityBot-only host. The
 Do not make `--OpponentId` or any strategy-specific argument mandatory. Opponents and teams are match-level concepts, not a runner's assumption that exactly one opponent exists.
 
 Target formats include 1v1, 2v2, 3v3, FFA, and multi-team formats such as 2v2v2, subject to live verification of player limits, team setup, observer behavior, PortSet semantics, and format-aware results. A compatibility proof must eventually run at least one SingularityBot-based runner and one independent bot through the same generic host contract. Bot strategy and bot-side protocol implementations remain owned by their respective bot projects; ServerSC2 owns orchestration, isolation, fairness, and evidence.
+
+
+## Descriptor-backed setup response validation
+
+The probe now has a pure response evaluator for the pinned SC2API protobuf descriptors. It rejects an unexpected response oneof, any envelope-level `Response.error` entries, and a populated setup payload error enum. It records the payload error's numeric value and descriptor name, plus the optional SC2 status value without assigning lifecycle meaning to that value.
+
+For a JoinGame response, the evaluator also requires the optional `player_id` acknowledgement to be present and records it. It does not infer observer identity, visibility isolation, team membership, or successful multiplayer topology from that field; those remain separate live assertions. This validation helper is not yet wired into the ping-only `run_probe` sequence.
+
+The pinned-schema tests cover CreateGame's `MultiplayerUnsupported` error, missing/present JoinGame player IDs, envelope errors, and wrong response oneofs. These are local response-validation contract tests, not evidence that a live SC2 process accepts either setup request.
