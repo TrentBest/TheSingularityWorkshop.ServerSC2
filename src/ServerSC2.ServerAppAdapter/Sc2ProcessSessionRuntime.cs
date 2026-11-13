@@ -17,6 +17,7 @@ public interface ISc2BotRunnerResolver
 public sealed record Sc2ProcessRuntimeOptions(
     string StarCraftExecutablePath,
     string StarCraftWorkingDirectory,
+    string MapId,
     string MapPath,
     TimeSpan RunnerJoinTimeout,
     TimeSpan ProcessStopTimeout)
@@ -26,6 +27,7 @@ public sealed record Sc2ProcessRuntimeOptions(
         var errors = new List<string>();
         if (string.IsNullOrWhiteSpace(StarCraftExecutablePath)) errors.Add("runtime.sc2-executable.required");
         if (string.IsNullOrWhiteSpace(StarCraftWorkingDirectory)) errors.Add("runtime.sc2-working-directory.required");
+        if (string.IsNullOrWhiteSpace(MapId)) errors.Add("runtime.map-id.required");
         if (string.IsNullOrWhiteSpace(MapPath)) errors.Add("runtime.map-path.required");
         if (RunnerJoinTimeout <= TimeSpan.Zero) errors.Add("runtime.join-timeout.invalid");
         if (ProcessStopTimeout <= TimeSpan.Zero) errors.Add("runtime.stop-timeout.invalid");
@@ -86,6 +88,8 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
     {
         ArgumentNullException.ThrowIfNull(request);
         ValidateLaunch(request);
+        if (!string.Equals(request.MapId, _options.MapId, StringComparison.Ordinal))
+            throw new InvalidOperationException("The match assignment map does not match the trusted runtime map profile.");
         ValidateMachinePaths();
 
         var session = new Session(request.MatchId, request.SessionId);
@@ -275,7 +279,7 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
             throw new InvalidOperationException("SC2 participant IDs must be unique.");
         if (request.Participants.Select(p => p.GamePort).Distinct().Count() != 2)
             throw new InvalidOperationException("Each SC2 process must have a distinct listener port.");
-        if (request.Participants.Any(p => p.GamePort is < 1 or > 65535 ||
+        if (request.Participants.Any(p => p.BotBuild is null || p.GamePort is < 1 or > 65535 ||
             string.IsNullOrWhiteSpace(p.BotBuild.BuildId) ||
             string.IsNullOrWhiteSpace(p.BotBuild.ContentSha256)))
             throw new InvalidOperationException("SC2 participant launch data is incomplete or invalid.");
