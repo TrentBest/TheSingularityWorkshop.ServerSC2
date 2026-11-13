@@ -24,7 +24,7 @@ Only trusted host configuration may choose the SC2 installation, maps, runtime r
 
 Work on development. Keep master aligned with the last released state; do not publish, merge, release, or deploy without explicit authorization.
 
-The current foundation includes validated server profiles, process-local port-pair leases, and a ServerApp IGameSessionAdapter bridge. The bridge is wired to an injected ISc2SessionRuntime contract; the concrete SimulationServer process supervisor and two-runner launcher are not implemented yet. Port leases prevent collisions among this host's own concurrent matches; they are not OS-level socket reservations.
+The current foundation includes validated server profiles, an atomic two-listener/shared-multiplayer-port lease for each 1v1 match, and a ServerApp IGameSessionAdapter bridge with typed per-participant listener and host-role assignments. The bridge is wired to an injected ISc2SessionRuntime contract; the concrete SimulationServer process supervisor and two-runner launcher are not implemented yet. Port leases prevent collisions among this host's own concurrent matches; they are not OS-level socket reservations.
 
 See [the architecture](docs/ARCHITECTURE.md), [SimulationServer orchestration](docs/SIMULATION_SERVER.md), [SC2 runtime protocol notes](docs/SC2_RUNTIME_PROTOCOL.md), and [the pause point](docs/PAUSE_POINT.md).
 
