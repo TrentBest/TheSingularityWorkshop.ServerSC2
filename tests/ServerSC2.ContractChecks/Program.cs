@@ -24,7 +24,9 @@ var checks = new (string Name, Action Run)[]
     ("observer process plan enumerates caller-owned participant collection once", ObserverPlanEnumeratesParticipantsOnce),
     ("observer process plan rejects null participant entries", ObserverPlanRejectsNullParticipant),
     ("observer process plan preserves multi-team and FFA assignments", ObserverPlanPreservesTeamAssignments),
-    ("observer process plan rejects duplicate participant identities and ports", ObserverPlanRejectsDuplicateIdentityAndPorts)
+    ("observer process plan rejects duplicate participant identities and ports", ObserverPlanRejectsDuplicateIdentityAndPorts),
+    ("runner result markers cannot complete a match", RunnerMarkersCannotCompleteMatch),
+    ("completion requires authoritative results and replay evidence", CompletionRequiresBothEvidenceArtifacts)
 };
 
 var failures = new List<string>();
@@ -353,6 +355,26 @@ static void ObserverPlanRejectsDuplicateIdentityAndPorts()
             index == 1 ? p with { GamePort = valid.Participants[0].GamePort } : p).ToArray())
     };
     AssertThrows(() => Sc2MatchProcessPlan.Create(duplicatePort), "distinct listener port");
+}
+
+static void RunnerMarkersCannotCompleteMatch()
+{
+    // Two runner-emitted SC2_RESULT markers are intentionally not represented in the
+    // completion gate. They may be retained for diagnostics, but cannot complete a match.
+    Assert(Sc2MatchCompletionGate.Evaluate(false, false) == GameSessionState.Running,
+        "Runner result markers alone must never complete a match.");
+}
+
+static void CompletionRequiresBothEvidenceArtifacts()
+{
+    Assert(Sc2MatchCompletionGate.Evaluate(false, false) == GameSessionState.Running,
+        "A match without either evidence artifact must remain running.");
+    Assert(Sc2MatchCompletionGate.Evaluate(true, false) == GameSessionState.Running,
+        "Authoritative results without validated replay evidence must not complete a match.");
+    Assert(Sc2MatchCompletionGate.Evaluate(false, true) == GameSessionState.Running,
+        "Replay evidence without validated authoritative results must not complete a match.");
+    Assert(Sc2MatchCompletionGate.Evaluate(true, true) == GameSessionState.Completed,
+        "Both validated evidence artifacts should satisfy the completion gate.");
 }
 
 static void AssertThrows(Action action, string expectedMessage)
