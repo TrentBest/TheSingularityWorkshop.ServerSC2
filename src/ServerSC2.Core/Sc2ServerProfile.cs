@@ -13,10 +13,11 @@ public sealed record Sc2ServerProfile(
     int MaximumConcurrentMatches,
     int MaximumParticipantsPerMatch = 2)
 {
-    // The reference SC2 coordinator assigns one shared port plus two ports per
-    // participating client. This is a reservation footprint, not live proof that
-    // the observer-host topology is supported by every pinned SC2 build.
-    public int MultiplayerPortCount => checked(2 * MaximumParticipantsPerMatch + 1);
+    // The target topology has one neutral observer SC2 client plus one SC2 client
+    // per entrant. The coordinator footprint is one shared port plus two ports per
+    // SC2 client. This is reservation planning only, not live topology proof.
+    public int Sc2ClientCountPerMatch => checked(MaximumParticipantsPerMatch + 1);
+    public int MultiplayerPortCount => checked(2 * Sc2ClientCountPerMatch + 1);
     public int MultiplayerPortStride => checked(MultiplayerPortCount + 1);
 
     public IReadOnlyList<string> Validate()
