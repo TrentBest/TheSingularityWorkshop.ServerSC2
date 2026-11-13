@@ -327,11 +327,11 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
             var payload = line[resultPrefix.Length..];
             var separator = payload.IndexOf(" result=", StringComparison.Ordinal);
             if (separator > 0 &&
-                uint.TryParse(payload.AsSpan(0, separator), NumberStyles.None, CultureInfo.InvariantCulture, out var playerId))
+                uint.TryParse(payload.AsSpan(0, separator), NumberStyles.None, CultureInfo.InvariantCulture, out var resultPlayerId))
             {
                 var result = payload[(separator + " result=".Length)..];
                 if (!string.IsNullOrWhiteSpace(result))
-                    runner.Result.TrySetResult(new RunnerResult(playerId, result));
+                    runner.Result.TrySetResult(new RunnerResult(resultPlayerId, result));
             }
         }
     }
