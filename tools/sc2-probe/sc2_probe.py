@@ -75,15 +75,23 @@ def validate_config(config: ProbeConfig) -> list[str]:
                     errors.append("Explicit setup PortSets overlap across players or within a player")
             except (KeyError, TypeError, ValueError):
                 errors.append("Setup sequence requires valid explicit server/client PortSet pairs")
-    ports = range(config.base_port, config.base_port + 3)
-    if len(set(ports)) != 3:
+    listener_ports = list(range(config.base_port, config.base_port + 3))
+    if len(set(listener_ports)) != 3:
         errors.append("SC2 listener ports overlap")
-    for port in ports:
+    ports_to_check = list(listener_ports)
+    if config.setup_sequence and config.player_port_sets is not None:
+        for role in ("player-1", "player-2"):
+            port_config = config.player_port_sets.get(role, {})
+            for pair in [port_config.get("server_ports", ()), *port_config.get("client_ports", ())]:
+                ports_to_check.extend(pair)
+        if set(listener_ports).intersection(ports_to_check[len(listener_ports):]):
+            errors.append("Explicit setup PortSets overlap SC2 API listener ports")
+    for port in dict.fromkeys(ports_to_check):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             try:
                 probe.bind(("127.0.0.1", port))
             except OSError:
-                errors.append(f"Listener port is already unavailable: {port}")
+                errors.append(f"Required local port is already unavailable: {port}")
     return errors
 
 
