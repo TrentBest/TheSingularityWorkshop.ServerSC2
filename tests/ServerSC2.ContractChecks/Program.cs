@@ -7,7 +7,7 @@ var checks = new (string Name, Action Run)[]
     ("valid profile is accepted", ValidProfileIsAccepted),
     ("overlapping port ranges are rejected", OverlappingRangesAreRejected),
     ("insufficient port capacity is rejected", InsufficientCapacityIsRejected),
-    ("leases allocate distinct game and start ports", LeasesAreDistinct),
+    ("leases allocate two listener ports and a shared multiplayer block", LeasesAreDistinct),
     ("pool enforces maximum concurrency", PoolEnforcesCapacity),
     ("disposing a lease makes its slot reusable", DisposedLeaseIsReusable),
     ("lease disposal is idempotent", LeaseDisposalIsIdempotent),
@@ -36,14 +36,14 @@ return failures.Count == 0 ? 0 : 1;
 
 static Sc2ServerProfile ValidProfile() => new(
     "sc2-local-1v1", "0.1.0", "5.0.14", "AbyssalReefLE",
-    5000, 5003, 6000, 6003, 4);
+    5000, 5007, 6000, 6018, 4);
 
 static void ValidProfileIsAccepted() =>
     Assert(ValidProfile().Validate().Count == 0, "Expected valid profile.");
 
 static void OverlappingRangesAreRejected()
 {
-    var profile = ValidProfile() with { StartPortFirst = 5002, StartPortLast = 5005 };
+    var profile = ValidProfile() with { StartPortFirst = 5000, StartPortLast = 5018 };
     Assert(profile.Validate().Contains("profile.port-ranges.overlap"), "Expected overlap rejection.");
 }
 
@@ -62,9 +62,16 @@ static void LeasesAreDistinct()
     using (first)
     using (second)
     {
-        Assert(first!.GamePort != second!.GamePort, "Game ports collided.");
-        Assert(first.StartPort != second.StartPort, "Start ports collided.");
-        Assert(first.GamePort != first.StartPort, "Game and start port collided.");
+        Assert(first!.HostGamePort != first.JoinerGamePort, "The two listeners must differ.");
+        Assert(second!.HostGamePort != second.JoinerGamePort, "The two listeners must differ.");
+        Assert(first.HostGamePort != second.HostGamePort && first.HostGamePort != second.JoinerGamePort &&
+            first.JoinerGamePort != second.HostGamePort && first.JoinerGamePort != second.JoinerGamePort,
+            "Concurrent match listener ports collided.");
+        Assert(first.StartPort != second.StartPort, "Multiplayer block bases collided.");
+        Assert(first.StartPort + 5 < second.StartPort || second.StartPort + 5 < first.StartPort,
+            "Concurrent multiplayer port blocks overlapped.");
+        Assert(first.HostGamePort != first.StartPort && first.JoinerGamePort != first.StartPort + 1,
+            "Listener and multiplayer ports collided.");
     }
 }
 
@@ -92,11 +99,11 @@ static void DisposedLeaseIsReusable()
 {
     var pool = new Sc2PortLeasePool(ValidProfile());
     Assert(pool.TryAcquire(out var first) && first is not null, "First lease failed.");
-    var firstGamePort = first!.GamePort;
+    var firstGamePort = first!.HostGamePort;
     first.Dispose();
     Assert(pool.TryAcquire(out var second) && second is not null, "Lease after release failed.");
     using (second)
-        Assert(second!.GamePort == firstGamePort, "Released slot was not reused.");
+        Assert(second!.HostGamePort == firstGamePort, "Released slot was not reused.");
 }
 
 static void LeaseDisposalIsIdempotent()
