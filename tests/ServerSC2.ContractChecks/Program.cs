@@ -211,6 +211,7 @@ static void AdapterReleasesOnStartupFailure()
 sealed class FakeSc2Runtime : ISc2SessionRuntime
 {
     public Sc2SessionLaunchRequest? LastRequest { get; private set; }
+    public Sc2RuntimeSessionSnapshot? StatusToReturn { get; set; }
     public bool ThrowOnStart { get; init; }
 
     public ValueTask<Sc2RuntimeSessionSnapshot> StartAsync(
