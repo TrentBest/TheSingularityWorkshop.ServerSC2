@@ -65,7 +65,10 @@ public sealed class Sc2PortLeasePool
     public bool TryAcquire(int participantCount, out Sc2PortLease? lease)
     {
         if (participantCount is < 2 || participantCount > _profile.MaximumParticipantsPerMatch)
-            throw new ArgumentOutOfRangeException(nameof(participantCount));
+        {
+            lease = null;
+            return false;
+        }
 
         lock (_gate)
         {
