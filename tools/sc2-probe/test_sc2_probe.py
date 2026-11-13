@@ -103,8 +103,9 @@ class ProtocolTransportTests(unittest.TestCase):
 class DescriptorBackedRequestBuilderTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from s2clientprotocol import sc2api_pb2
+        from s2clientprotocol import common_pb2, sc2api_pb2
         cls.protocol = sc2api_pb2
+        cls.terran_race = common_pb2.Terran
 
     def test_create_game_uses_local_map_and_explicit_participant_count(self):
         request = build_create_game_request(
@@ -122,7 +123,7 @@ class DescriptorBackedRequestBuilderTests(unittest.TestCase):
 
     def test_join_player_and_observer_modes_use_distinct_oneof_fields(self):
         player = build_join_game_request(
-            self.protocol, race=self.protocol.Terran,
+            self.protocol, race=self.terran_race,
             server_ports=(5002, 5003), client_ports=((5004, 5005),),
         )
         observer = build_join_game_request(
@@ -130,7 +131,7 @@ class DescriptorBackedRequestBuilderTests(unittest.TestCase):
         )
         self.assertEqual(player.WhichOneof("request"), "join_game")
         self.assertEqual(player.join_game.WhichOneof("participation"), "race")
-        self.assertEqual(player.join_game.race, self.protocol.Terran)
+        self.assertEqual(player.join_game.race, self.terran_race)
         self.assertEqual(player.join_game.server_ports.game_port, 5002)
         self.assertEqual(
             [(p.game_port, p.base_port) for p in player.join_game.client_ports],
@@ -146,7 +147,7 @@ class DescriptorBackedRequestBuilderTests(unittest.TestCase):
             build_join_game_request(self.protocol)
         with self.assertRaises(ValueError):
             build_join_game_request(
-                self.protocol, race=self.protocol.Terran,
+                self.protocol, race=self.terran_race,
                 server_ports=(5002, 5003), client_ports=((5003, 5004),),
             )
 
