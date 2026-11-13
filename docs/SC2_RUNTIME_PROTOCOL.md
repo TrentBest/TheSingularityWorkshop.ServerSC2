@@ -179,3 +179,10 @@ The probe now has a pure response evaluator for the pinned SC2API protobuf descr
 For a JoinGame response, the evaluator also requires the optional `player_id` acknowledgement to be present and records it. It does not infer observer identity, visibility isolation, team membership, or successful multiplayer topology from that field; those remain separate live assertions. This validation helper is not yet wired into the ping-only `run_probe` sequence.
 
 The pinned-schema tests cover CreateGame's `MultiplayerUnsupported` error, missing/present JoinGame player IDs, envelope errors, and wrong response oneofs. These are local response-validation contract tests, not evidence that a live SC2 process accepts either setup request.
+
+
+## Durable setup-exchange gate
+
+The probe now has a setup-exchange wrapper that sends one request, evaluates the structured setup response, appends the role-tagged raw protobuf exchange and gate result to the evidence manifest, and writes the manifest before raising on a failed gate. A failed CreateGame or JoinGame acknowledgement therefore remains auditable rather than disappearing behind an exception.
+
+The CI test injects a CreateGame MultiplayerUnsupported response and verifies that the failed gate, payload error name, and exact response bytes are present in the written evidence file before the wrapper raises. This is a local persistence/validation test only; the wrapper is not yet wired to a live SC2 process and does not establish setup acceptance or observer topology.
