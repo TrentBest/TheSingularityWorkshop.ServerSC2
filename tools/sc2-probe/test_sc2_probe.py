@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sc2_probe import ProbeConfig, parse_args, validate_config
+from sc2_probe import ProbeConfig, evaluate_version_gate, parse_args, validate_config
 
 
 class ProbePreflightTests(unittest.TestCase):
@@ -50,6 +50,83 @@ class ProbePreflightTests(unittest.TestCase):
             errors = validate_config(config)
             self.assertTrue(any("Base port" in error for error in errors))
             self.assertTrue(any("timeouts" in error for error in errors))
+
+    def test_version_gate_requires_all_processes_to_match_one_complete_build(self):
+        protocol = {
+            "observer": {
+                "game_version": "5.0.17.12345",
+                "data_version": "abc",
+                "data_build": 12345,
+                "base_build": 12345,
+            },
+            "player-1": {
+                "game_version": "5.0.17.12345",
+                "data_version": "abc",
+                "data_build": 12345,
+                "base_build": 12345,
+            },
+            "player-2": {
+                "game_version": "5.0.17.12345",
+                "data_version": "abc",
+                "data_build": 12345,
+                "base_build": 12345,
+            },
+        }
+        result = evaluate_version_gate(protocol, "5.0.17")
+        self.assertTrue(result["passed"])
+        self.assertTrue(result["all_processes_report_same_complete_build"])
+        self.assertEqual(result["process_count"], 3)
+
+    def test_version_gate_rejects_mixed_data_builds(self):
+        protocol = {
+            "observer": {
+                "game_version": "5.0.17.12345",
+                "data_version": "abc",
+                "data_build": 12345,
+                "base_build": 12345,
+            },
+            "player-1": {
+                "game_version": "5.0.17.12345",
+                "data_version": "abc",
+                "data_build": 12345,
+                "base_build": 12345,
+            },
+            "player-2": {
+                "game_version": "5.0.17.12345",
+                "data_version": "def",
+                "data_build": 12346,
+                "base_build": 12345,
+            },
+        }
+        result = evaluate_version_gate(protocol, "5.0.17")
+        self.assertFalse(result["passed"])
+        self.assertTrue(result["all_processes_match_expected_game_version"])
+        self.assertFalse(result["all_processes_report_same_complete_build"])
+
+    def test_version_gate_rejects_incomplete_build_metadata(self):
+        protocol = {
+            "observer": {
+                "game_version": "5.0.17.12345",
+                "data_version": "abc",
+                "data_build": 12345,
+                "base_build": 12345,
+            },
+            "player-1": {
+                "game_version": "5.0.17.12345",
+                "data_version": "abc",
+                "data_build": 12345,
+                "base_build": 12345,
+            },
+            "player-2": {
+                "game_version": "5.0.17.12345",
+                "data_version": "",
+                "data_build": 12345,
+                "base_build": 12345,
+            },
+        }
+        result = evaluate_version_gate(protocol, "5.0.17")
+        self.assertFalse(result["passed"])
+        self.assertFalse(result["all_processes_report_same_complete_build"])
 
 
 if __name__ == "__main__":
