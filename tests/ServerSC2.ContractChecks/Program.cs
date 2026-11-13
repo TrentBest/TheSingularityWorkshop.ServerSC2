@@ -19,7 +19,9 @@ var checks = new (string Name, Action Run)[]
     ("observer process plan isolates CreateGame authority", ObserverPlanIsolatesCreateGame),
     ("observer process plan scales to arbitrary participant counts", ObserverPlanScales),
     ("observer process plan rejects invalid build and port boundaries", ObserverPlanRejectsInvalidBoundaries),
-    ("observer process plan requires pinned runtime metadata", ObserverPlanRequiresRuntimeMetadata)
+    ("observer process plan requires pinned runtime metadata", ObserverPlanRequiresRuntimeMetadata),
+    ("observer process plan snapshots caller-owned participant collections", ObserverPlanSnapshotsParticipants),
+    ("observer process plan rejects null participant entries", ObserverPlanRejectsNullParticipant)
 };
 
 var failures = new List<string>();
@@ -252,6 +254,30 @@ static void ObserverPlanRequiresRuntimeMetadata()
         }
         catch (ArgumentException) { }
     }
+}
+
+static void ObserverPlanSnapshotsParticipants()
+{
+    var valid = ObserverLaunchRequest(2);
+    var callerOwned = valid.Participants.ToList();
+    var request = valid with { Participants = callerOwned };
+    var plan = Sc2MatchProcessPlan.Create(request);
+
+    callerOwned[0] = callerOwned[0] with { ParticipantId = "mutated-after-plan" };
+    callerOwned.Clear();
+
+    Assert(plan.BotRunners.Count == 2, "The plan changed after its source collection was mutated.");
+    Assert(plan.BotRunners[0].ParticipantId == "p1",
+        "The plan retained a mutable participant collection instead of its validated snapshot.");
+}
+
+static void ObserverPlanRejectsNullParticipant()
+{
+    var valid = ObserverLaunchRequest(2);
+    var participants = valid.Participants.ToList();
+    participants[0] = null!;
+    var request = valid with { Participants = participants };
+    AssertThrows(() => Sc2MatchProcessPlan.Create(request), "null participant");
 }
 
 static void AssertThrows(Action action, string expectedMessage)
