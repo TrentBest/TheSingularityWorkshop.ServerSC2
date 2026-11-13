@@ -18,7 +18,8 @@ var checks = new (string Name, Action Run)[]
     ("adapter releases a lease when runtime startup fails", AdapterReleasesOnStartupFailure),
     ("observer process plan isolates CreateGame authority", ObserverPlanIsolatesCreateGame),
     ("observer process plan scales to arbitrary participant counts", ObserverPlanScales),
-    ("observer process plan rejects invalid build and port boundaries", ObserverPlanRejectsInvalidBoundaries)
+    ("observer process plan rejects invalid build and port boundaries", ObserverPlanRejectsInvalidBoundaries),
+    ("observer process plan requires pinned runtime metadata", ObserverPlanRequiresRuntimeMetadata)
 };
 
 var failures = new List<string>();
@@ -230,6 +231,27 @@ static void ObserverPlanRejectsInvalidBoundaries()
 
     var overflowingBlock = valid with { StartPort = 65530 };
     AssertThrows(() => Sc2MatchProcessPlan.Create(overflowingBlock), "cannot reserve");
+}
+
+static void ObserverPlanRequiresRuntimeMetadata()
+{
+    var valid = ObserverLaunchRequest(2);
+    var invalidRequests = new[]
+    {
+        valid with { AdapterVersion = "" },
+        valid with { GameVersion = "" },
+        valid with { MapId = "" }
+    };
+
+    foreach (var request in invalidRequests)
+    {
+        try
+        {
+            Sc2MatchProcessPlan.Create(request);
+            throw new InvalidOperationException("Expected missing runtime metadata to be rejected.");
+        }
+        catch (ArgumentException) { }
+    }
 }
 
 static void AssertThrows(Action action, string expectedMessage)
