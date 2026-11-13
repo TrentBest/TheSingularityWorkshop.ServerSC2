@@ -140,14 +140,14 @@ static void AdapterMapsAssignment()
     var result = adapter.StartAsync(new GameSessionStartRequest(TestAssignment(), "session-001"))
         .AsTask().GetAwaiter().GetResult();
     Assert(result.State == GameSessionState.Ready, "Adapter did not return Ready.");
-    Assert(runtime.LastRequest is not null, "Runtime did not receive a launch request.");
-    Assert(runtime.LastRequest!.Participants.Count == 2, "Expected two participant launch records.");
-    Assert(runtime.LastRequest.Participants[0].BotBuild.BuildId == "build-a", "First immutable build was not preserved.");
-    Assert(runtime.LastRequest.Participants[0].IsGameHost, "First participant was not designated host.");
-    Assert(!runtime.LastRequest.Participants[1].IsGameHost, "Second participant was incorrectly designated host.");
-    Assert(runtime.LastRequest.Participants[0].GamePort != runtime.LastRequest.Participants[1].GamePort,
+    var launchRequest = runtime.LastRequest ?? throw new InvalidOperationException("Runtime did not receive a launch request.");
+    Assert(launchRequest.Participants.Count == 2, "Expected two participant launch records.");
+    Assert(launchRequest.Participants[0].BotBuild.BuildId == "build-a", "First immutable build was not preserved.");
+    Assert(launchRequest.Participants[0].IsGameHost, "First participant was not designated host.");
+    Assert(!launchRequest.Participants[1].IsGameHost, "Second participant was incorrectly designated host.");
+    Assert(launchRequest.Participants[0].GamePort != launchRequest.Participants[1].GamePort,
         "Participants must receive distinct SC2 listener ports.");
-    Assert(runtime.LastRequest.StartPort == 6000, "Expected one shared match-level StartPort base.");
+    Assert(launchRequest.StartPort == 6000, "Expected one shared match-level StartPort base.");
     Assert(pool.ActiveLeaseCount == 1, "Port lease was not retained for the active session.");
     adapter.StopAsync("session-001").AsTask().GetAwaiter().GetResult();
     Assert(pool.ActiveLeaseCount == 0, "Port lease was not released after stop.");
