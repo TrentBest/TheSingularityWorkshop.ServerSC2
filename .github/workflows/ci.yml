@@ -15,11 +15,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: TheSingularityWorkshop.ServerSC2
+      - uses: actions/checkout@v4
+        with:
+          repository: TrentBest/TheSingularityWorkshop.ServerApp
+          ref: development
+          path: TheSingularityWorkshop.ServerApp
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
       - name: Build core
+        working-directory: TheSingularityWorkshop.ServerSC2
         run: dotnet build src/ServerSC2.Core/ServerSC2.Core.csproj --configuration Release
+      - name: Build ServerApp adapter
+        working-directory: TheSingularityWorkshop.ServerSC2
+        run: dotnet build src/ServerSC2.ServerAppAdapter/ServerSC2.ServerAppAdapter.csproj --configuration Release
       - name: Run contract checks
+        working-directory: TheSingularityWorkshop.ServerSC2
         run: dotnet run --project tests/ServerSC2.ContractChecks/ServerSC2.ContractChecks.csproj --configuration Release
