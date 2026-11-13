@@ -105,7 +105,7 @@ python tools/sc2-probe/sc2_probe.py --execute --executable <SC2.exe> --install-d
 
 ## Protocol transport and exchange evidence
 
-The probe now routes its bootstrap ping through a small transport boundary that can be exercised with fake sockets in CI. For each completed exchange it records the request and response oneof names, expected response type, send/receive UTC timestamps, bounded socket timeout, and the exact serialized request/response protobuf bytes encoded as Base64 in the evidence manifest. A mismatched response oneof is rejected.
+The probe now routes its bootstrap ping through a small transport boundary that can be exercised with fake sockets in CI. For each completed exchange it records the request and response oneof names, expected response type, send/receive UTC timestamps, bounded socket timeout, and the exact serialized request/response protobuf bytes encoded as Base64 in the evidence manifest. A mismatched response oneof is retained in the manifest with its raw request/response bytes and marked as a failed exchange before the probe aborts; failed exchanges are not silently discarded.
 
 SC2API does not expose a request identifier in the envelope. Blizzard's protocol documentation specifies that responses match requests in their incoming order; the probe therefore keeps exactly one request outstanding per connection and records that FIFO correlation assumption explicitly. This is intentionally conservative: it avoids inventing request IDs or introducing pipelining before the probe has tests for ordered multi-request handling.
 
