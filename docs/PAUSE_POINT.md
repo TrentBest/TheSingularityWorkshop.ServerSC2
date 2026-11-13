@@ -3,8 +3,8 @@
 ## Current state
 
 - Repository work is on development; branches are exactly master and development.
-- ServerSC2.Core contains trusted profile validation and bounded process-local game/start port leases.
-- ServerSC2.ServerAppAdapter implements ServerApp.Core's IGameSessionAdapter contract through a source project reference. It validates game and adapter-version identity, translates the immutable two-participant assignment into a typed SC2 launch request, and retains/releases its port lease with session lifecycle.
+- ServerSC2.Core validates the complete 1v1 port footprint and atomically leases two distinct SC2 listener ports plus one shared five-port multiplayer block per match.
+- ServerSC2.ServerAppAdapter implements ServerApp.Core's IGameSessionAdapter contract through a source project reference. It validates game and adapter-version identity, maps the first immutable participant to the trusted host role and the second to the joiner role, assigns distinct listener ports, and retains/releases the match lease with session lifecycle.
 - ISc2SessionRuntime is an injected boundary only. No concrete SimulationServer process supervisor or bot launcher exists yet.
 - The intended runtime is a SimulationServer hosting one authoritative multiplayer match through two separate SC2 instances, with two independently launched SingularityBot runners.
 - Contract checks cover profile/lease behavior and the adapter's assignment mapping, wrong-game rejection, and startup-failure lease cleanup.
