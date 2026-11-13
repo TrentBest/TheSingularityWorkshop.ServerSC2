@@ -3,36 +3,37 @@
 ## Current state
 
 - Repository work is on development; branches are exactly master and development.
-- ServerSC2.Core validates the complete 1v1 port footprint and atomically leases two distinct SC2 listener ports plus one shared five-port multiplayer block per match.
-- ServerSC2.ServerAppAdapter implements ServerApp.Core's IGameSessionAdapter contract through a source project reference. It validates game and adapter-version identity, maps the first immutable participant to the trusted host role and the second to the joiner role, assigns distinct listener ports, and retains/releases the match lease with session lifecycle.
-- `Sc2ProcessSessionRuntime` is the concrete `ISc2SessionRuntime` process supervisor. It launches two SC2 instances and two admitted runner executables, waits for both structured join acknowledgements, observes both terminal result markers, and owns process-tree cleanup.
-- `ISc2BotRunnerResolver` is the trusted artifact-resolution boundary. Its implementation must resolve immutable build IDs and verify each artifact against its admitted SHA-256; this repository does not yet provide the artifact store/resolver.
-- The intended runtime is a SimulationServer hosting one authoritative multiplayer match through two separate SC2 instances, with two independently launched SingularityBot runners.
-- Contract checks cover profile/lease behavior, adapter assignment mapping, wrong-game rejection, startup-failure lease cleanup, and rejection of a runtime status carrying the wrong admitted match ID. The process supervisor is compiled by CI but has not yet been exercised against a live SC2 installation.
+- ServerSC2.Core currently leases two distinct SC2 listener ports plus one shared five-port multiplayer block per match. This is the existing two-client footprint, not yet validated for an observer plus two competitors.
+- ServerSC2.ServerAppAdapter implements ServerApp.Core's IGameSessionAdapter contract through a source project reference.
+- The current Sc2ProcessSessionRuntime launches two SC2 instances and two admitted runner executables. One participant runner currently receives CreateGame authority; this is the old topology and must be replaced for observer-hosted competition.
+- ISc2BotRunnerResolver is the trusted artifact-resolution boundary. Its implementation must resolve immutable build IDs and verify each artifact against its admitted SHA-256; this repository does not yet provide the artifact store/resolver.
+- Contract checks cover profile/lease behavior, adapter assignment mapping, wrong-game rejection, startup-failure lease cleanup, and rejection of a runtime status carrying the wrong admitted match ID.
+- The process supervisor is compiled by CI but has not been exercised against a live SC2 installation.
 
-## Verified integration facts
+## Agreed target architecture
 
-- Blizzard's SC2API multiplayer flow launches two SC2 instances on separate listener ports, designates one host to issue CreateGame, and joins both clients to that game.
-- Each SingularityBot runner connects to its own SC2 listener endpoint using a distinct GamePort.
-- SingularityBot development now has an explicit designated-host mode: `--CreateGame --Map <trusted-map-path>` creates a two-participant multiplayer game on the host SC2 instance before that runner performs its normal ladder join. The other runner joins without the host flag. This source change is not yet live-SC2 verified.
-- Blizzard's reference coordinator passes the same match-level multiplayer PortSet structure to both clients. Both runners therefore use the same StartPort base; its `+1..+5` derived ports are shared match resources, not separately allocated per runner.
-- ServerSC2 now leases two distinct SC2 listener ports plus the shared five-port multiplayer block as one atomic match footprint. The lease is process-local and does not reserve OS sockets.
+A match uses three SC2 processes and two bot runners:
 
-See SIMULATION_SERVER.md and SC2_RUNTIME_PROTOCOL.md.
+1. Dedicated simulation host / observer: creates the multiplayer game, joins as observer, monitors lifecycle, and captures authoritative result/replay evidence.
+2. Player SC2 instance A plus admitted runner A.
+3. Player SC2 instance B plus admitted runner B.
 
-## Verification
+Neither competitor creates the game. Each runner connects only to its own player SC2 listener. The observer's global perspective is never exposed to either bot. This is three supervised SC2 processes, not a requirement for three physical machines.
 
-The GitHub Actions workflow checks out ServerApp's development source, installs .NET 8 with `actions/setup-dotnet@v4`, builds ServerSC2.Core and the adapter, and runs contract checks. CI run 61 completed successfully after the match-identity guard and its contract test were added; the earlier process-supervisor and player-ID correlation revisions also passed. SingularityBot CI passed for the structured lifecycle markers and fail-closed CreateGame/JoinGame response handling. This environment has no local .NET SDK, so no local build was run. CI success proves compilation and contract checks, not live SC2 integration.
+The protocol has an observer participation field (`observed_player_id`) and distinct observer actions, but the exact CreateGame-then-observer-join sequence and the complete three-client PortSet layout remain unproven. See [OBSERVER_HOST_DESIGN.md](OBSERVER_HOST_DESIGN.md).
 
-## Next work
+## Next implementation gates
 
-1. Verify the host-side `--CreateGame --Map` path against a runnable SC2 build and confirm both runners join the same game with distinct player IDs.
-2. Supply the trusted `ISc2BotRunnerResolver` backed by ServerApp's immutable build registry/artifact store; verify content hashes before launch.
-3. Persist the result values and map them to the immutable participant assignments; current runtime checks that each result marker's player ID matches that runner's join acknowledgement but does not yet expose durable result evidence.
-4. Capture and validate SC2-authoritative result evidence and save the replay, binding both to match/session, map/game version, and build hashes.
-5. Exercise timeout, early exit, partial startup, cancellation, and host disposal; verify all four process trees are stopped and ports released.
-6. Add append-oriented durable session history after lifecycle evidence is trustworthy.
+1. Prove dedicated host CreateGame followed by observer join against the pinned SC2 build; confirm all-player observer semantics.
+2. Derive the complete PortSet footprint for three SC2 clients and update the atomic lease pool/profile validation.
+3. Change typed launch records and the process supervisor to create one observer plus two player instances and two runners. Remove the competitor-host flag.
+4. Implement trusted immutable artifact resolution and SHA-256 verification before any runner launch.
+5. Capture observer-authoritative terminal results and replay, correlated to player IDs, immutable participants, map/game version, and both build hashes.
+6. Add contract tests for observer readiness, no observer-to-bot information path, fairness metadata, startup failure, timeout, cancellation, early exit, and complete process-tree cleanup.
+7. Run the three-process/two-runner live SC2 integration proof, then add durable append-oriented session history and idempotent ServerApp result handoff.
 
-## Boundaries
+## Verification and boundaries
+
+CI currently checks out ServerApp's development source, installs .NET 8, builds ServerSC2.Core and the adapter, and runs contract checks. CI success proves compilation and those contracts, not live SC2 integration. No live SC2 proof has been performed for the observer-host topology.
 
 No NuGet publishing, merge, release, deployment, or branch deletion has been performed. No database or ORM has been introduced.
