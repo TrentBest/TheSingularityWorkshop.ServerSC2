@@ -202,7 +202,9 @@ and pass the complete identical-build fingerprint gate. It then opens persistent
 connections and sends CreateGame only on the observer connection, followed by observer
 JoinGame and the two player JoinGame requests. Every request/response byte sequence and
 structured acknowledgement is persisted before proceeding; the first failed gate stops
-the sequence. The setup mode is still opt-in only, and CI never launches SC2.
+the sequence. The two player JoinGame acknowledgements must also contain distinct player
+IDs; duplicate IDs fail the sequence and are persisted as a separate identity gate. The
+setup mode is still opt-in only, and CI never launches SC2.
 
 Example PowerShell shape (the port values below are placeholders, not a recommended or
 validated layout):
