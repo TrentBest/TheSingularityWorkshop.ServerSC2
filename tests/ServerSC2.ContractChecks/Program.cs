@@ -157,7 +157,7 @@ static Sc2SessionLaunchRequest ObserverLaunchRequest(int participantCount)
         .Select(index => new Sc2ParticipantLaunch(
             $"p{index + 1}",
             $"team-{index / 2 + 1}",
-            new BotBuildReference($"bot-{index + 1}", $"build-{index + 1}", new string((char)('a' + index), 64)),
+            new BotBuildReference($"bot-{index + 1}", $"build-{index + 1}", new string("abcdef0123456789"[index % 16], 64)),
             5000 + index,
             false))
         .ToArray();
