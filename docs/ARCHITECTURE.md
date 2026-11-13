@@ -9,7 +9,11 @@ ServerApp (game-neutral competition host)
     |
     | IGameSessionAdapter / immutable MatchAssignment
     v
-ServerSC2 (SC2-specific session adapter and supervisor)
+ServerSC2.ServerAppAdapter
+    |
+    | trusted typed SC2 launch contract
+    v
+ServerSC2.Core / ISc2SessionRuntime
     |
     +-- SC2 game process
     +-- independently launched participant processes (e.g. SingularityBot)
@@ -44,12 +48,21 @@ The SC2 server profile is trusted deployment configuration. It pins the adapter/
 
 Every session is built from an immutable admitted match assignment. A match must not become Ready until the SC2 game and all required participant processes have independently passed readiness checks.
 
+## ServerApp adapter bridge
+
+`ServerSC2.ServerAppAdapter` implements the game-neutral `IGameSessionAdapter` contract from ServerApp.Core. It accepts only an admitted immutable assignment, verifies the game and pinned adapter version, maps the two participant build references into a typed launch request, and holds a bounded port lease for the session lifetime.
+
+The adapter depends on ServerApp.Core through a source project reference, not a published package. CI checks out ServerApp's `development` branch alongside this repository. The dependency is intentionally isolated in this adapter project; ServerSC2.Core remains independent of ServerApp.
+
+`ISc2SessionRuntime` is the next boundary: it is injected and trusted. The bridge does not yet launch SC2 or participant processes. The runtime implementation must own executable resolution, fixed argument construction, process-tree supervision, readiness probes, replay/result capture, and bounded cleanup. Until that implementation exists, no actual match can be started by this repository.
+
 ## First implementation boundary
 
-The initial core provides:
+The core provides:
 - validation of trusted SC2 server profiles;
 - bounded, process-local allocation of distinct game/start port pairs;
-- explicit lease disposal and reuse.
+- explicit lease disposal and reuse;
+- a ServerApp adapter bridge with typed launch requests and session-scoped port ownership.
 
 A lease is not an OS socket reservation. The process supervisor must still handle bind failures, verify the actual game process, and clean up all child processes and leases on every terminal path.
 
