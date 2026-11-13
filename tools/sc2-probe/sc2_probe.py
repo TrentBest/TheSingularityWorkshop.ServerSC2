@@ -29,6 +29,10 @@ class ProbeConfig:
     base_port: int
     startup_timeout: float
     shutdown_timeout: float
+    setup_sequence: bool = False
+    observer_player_id: int | None = None
+    player_races: dict[str, int] | None = None
+    player_port_sets: dict[str, dict[str, Any]] | None = None
 
 
 def utc_now() -> str:
@@ -49,6 +53,13 @@ def validate_config(config: ProbeConfig) -> list[str]:
         errors.append("Base port must be between 1024 and 65532")
     if config.startup_timeout <= 0 or config.shutdown_timeout <= 0:
         errors.append("Startup and shutdown timeouts must be positive")
+    if config.setup_sequence:
+        if config.observer_player_id is None or not 0 <= config.observer_player_id <= 0xFFFFFFFF:
+            errors.append("Setup sequence requires an explicit uint32 observer player ID")
+        if config.player_races is None or set(config.player_races) != {"player-1", "player-2"}:
+            errors.append("Setup sequence requires explicit races for both players")
+        if config.player_port_sets is None or set(config.player_port_sets) != {"player-1", "player-2"}:
+            errors.append("Setup sequence requires explicit PortSets for both players")
     ports = range(config.base_port, config.base_port + 3)
     if len(set(ports)) != 3:
         errors.append("SC2 listener ports overlap")
@@ -531,9 +542,37 @@ def run_probe(config: ProbeConfig) -> int:
                 "SC2 processes do not all match the expected game version and identical complete build metadata"
             )
 
-        # This bootstrap milestone intentionally stops before CreateGame/join. Those
-        # messages and the complete PortSet payload remain live-proof gates, not guesses.
-        manifest["status"] = "bootstrap-passed"
+        if config.setup_sequence:
+            from s2clientprotocol import sc2api_pb2
+            from websocket import create_connection
+
+            live_connections: dict[str, Any] = {}
+            try:
+                for ordinal, role in enumerate(("observer", "player-1", "player-2")):
+                    live_connections[role] = create_connection(
+                        f"ws://127.0.0.1:{config.base_port + ordinal}/sc2api",
+                        timeout=min(10.0, config.startup_timeout),
+                        enable_multithread=False,
+                    )
+                manifest["gates"]["setup_sequence"] = {"attempted": True, "passed": False}
+                run_observer_setup_sequence(
+                    live_connections, sc2api_pb2,
+                    map_path=str(config.map_path),
+                    observer_player_id=config.observer_player_id,
+                    player_races=config.player_races,
+                    player_port_sets=config.player_port_sets,
+                    timeout=min(10.0, config.startup_timeout),
+                    manifest=manifest,
+                    manifest_path=config.output_dir / "evidence.json",
+                )
+                manifest["gates"]["setup_sequence"] = {"attempted": True, "passed": True}
+                manifest["status"] = "live-setup-sequence-passed"
+            finally:
+                for connection in live_connections.values():
+                    connection.close()
+        else:
+            manifest["gates"]["setup_sequence"] = {"attempted": False, "passed": False}
+            manifest["status"] = "bootstrap-passed"
         return_code = 0
     except Exception as exc:
         manifest["error"] = str(exc)
@@ -591,7 +630,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--base-port", type=int, default=5000)
     parser.add_argument("--startup-timeout", type=float, default=90.0)
     parser.add_argument("--shutdown-timeout", type=float, default=15.0)
+    parser.add_argument("--setup-sequence", action="store_true", help="Opt in to live CreateGame/observer/player setup after bootstrap gates")
+    parser.add_argument("--observer-player-id", type=int)
+    parser.add_argument("--player-1-race", type=int)
+    parser.add_argument("--player-2-race", type=int)
+    parser.add_argument("--player-1-server-ports", help="Explicit game_port,base_port pair")
+    parser.add_argument("--player-2-server-ports", help="Explicit game_port,base_port pair")
+    parser.add_argument("--player-1-client-ports", action="append", default=[], help="Explicit game_port,base_port pair; repeat as needed")
+    parser.add_argument("--player-2-client-ports", action="append", default=[], help="Explicit game_port,base_port pair; repeat as needed")
     return parser.parse_args(argv)
+
+
+def parse_port_pair(value: str) -> tuple[int, int]:
+    try:
+        parts = tuple(int(part.strip()) for part in value.split(","))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("Port pair must be two comma-separated integers") from exc
+    if len(parts) != 2 or any(not 1 <= port <= 65535 for port in parts) or parts[0] == parts[1]:
+        raise argparse.ArgumentTypeError("Port pair must contain two distinct ports in range 1..65535")
+    return parts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -610,6 +667,33 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print("Missing required inputs: " + ", ".join(missing), file=sys.stderr)
         return 2
+    if args.setup_sequence:
+        setup_required = {
+            "--observer-player-id": args.observer_player_id,
+            "--player-1-race": args.player_1_race,
+            "--player-2-race": args.player_2_race,
+            "--player-1-server-ports": args.player_1_server_ports,
+            "--player-2-server-ports": args.player_2_server_ports,
+        }
+        missing_setup = [name for name, value in setup_required.items() if value is None]
+        if missing_setup:
+            print("Setup sequence requires: " + ", ".join(missing_setup), file=sys.stderr)
+            return 2
+        try:
+            player_port_sets = {
+                "player-1": {"server_ports": parse_port_pair(args.player_1_server_ports), "client_ports": tuple(parse_port_pair(v) for v in args.player_1_client_ports)},
+                "player-2": {"server_ports": parse_port_pair(args.player_2_server_ports), "client_ports": tuple(parse_port_pair(v) for v in args.player_2_client_ports)},
+            }
+        except argparse.ArgumentTypeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        player_races = {"player-1": args.player_1_race, "player-2": args.player_2_race}
+    else:
+        if any(value is not None for value in (args.observer_player_id, args.player_1_race, args.player_2_race, args.player_1_server_ports, args.player_2_server_ports)) or args.player_1_client_ports or args.player_2_client_ports:
+            print("Setup inputs require --setup-sequence.", file=sys.stderr)
+            return 2
+        player_port_sets = None
+        player_races = None
     config = ProbeConfig(
         executable=args.executable.resolve(),
         install_dir=args.install_dir.resolve(),
@@ -619,6 +703,10 @@ def main(argv: list[str] | None = None) -> int:
         base_port=args.base_port,
         startup_timeout=args.startup_timeout,
         shutdown_timeout=args.shutdown_timeout,
+        setup_sequence=args.setup_sequence,
+        observer_player_id=args.observer_player_id,
+        player_races=player_races,
+        player_port_sets=player_port_sets,
     )
     return run_probe(config)
 
