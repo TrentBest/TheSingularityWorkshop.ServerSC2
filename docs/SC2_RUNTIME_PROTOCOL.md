@@ -103,6 +103,16 @@ Install the pinned developer dependencies with `python -m pip install -r tools/s
 python tools/sc2-probe/sc2_probe.py --execute --executable <SC2.exe> --install-dir <SC2-install-dir> --map <TrustedMap.SC2Map> --expected-version <pinned-version> --output-dir <probe-output> --base-port 5000
 ```
 
+## Protocol transport and exchange evidence
+
+The probe now routes its bootstrap ping through a small transport boundary that can be exercised with fake sockets in CI. For each completed exchange it records the request and response oneof names, expected response type, send/receive UTC timestamps, bounded socket timeout, and the exact serialized request/response protobuf bytes encoded as Base64 in the evidence manifest. A mismatched response oneof is rejected.
+
+SC2API does not expose a request identifier in the envelope. Blizzard's protocol documentation specifies that responses match requests in their incoming order; the probe therefore keeps exactly one request outstanding per connection and records that FIFO correlation assumption explicitly. This is intentionally conservative: it avoids inventing request IDs or introducing pipelining before the probe has tests for ordered multi-request handling.
+
+Transport records are protocol evidence, not proof of game readiness. The current exchange is still only RequestPing; CreateGame, observer/player joins, lifecycle observations, result capture, and replay validation remain unimplemented live-proof gates.
+
+Reference: https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.md
+
 ## Live proof harness acceptance contract
 
 The first implementation milestone is a standalone, opt-in protocol probe—not a production runtime replacement. It must be inert unless explicitly invoked with all required trusted inputs.
