@@ -10,10 +10,14 @@ public sealed record Sc2ServerProfile(
     int GamePortLast,
     int StartPortFirst,
     int StartPortLast,
-    int MaximumConcurrentMatches)
+    int MaximumConcurrentMatches,
+    int MaximumParticipantsPerMatch = 2)
 {
-    private const int MultiplayerPortSpan = 5;
-    private const int MultiplayerPortStride = MultiplayerPortSpan + 1;
+    // The reference SC2 coordinator assigns one shared port plus two ports per
+    // participating client. This is a reservation footprint, not live proof that
+    // the observer-host topology is supported by every pinned SC2 build.
+    public int MultiplayerPortCount => checked(2 * MaximumParticipantsPerMatch + 1);
+    public int MultiplayerPortStride => checked(MultiplayerPortCount + 1);
 
     public IReadOnlyList<string> Validate()
     {
@@ -26,28 +30,34 @@ public sealed record Sc2ServerProfile(
         ValidateRange(GamePortFirst, GamePortLast, "game", errors);
         ValidateRange(StartPortFirst, StartPortLast, "start", errors);
 
-        if (StartPortLast is >= 1 and <= 65535 && StartPortLast > 65535 - MultiplayerPortSpan)
+        if (MaximumParticipantsPerMatch is < 2 or > 64)
+            errors.Add("profile.participant-capacity.invalid");
+
+        if (MaximumParticipantsPerMatch is >= 2 and <= 64 &&
+            StartPortLast is >= 1 and <= 65535 &&
+            StartPortLast > 65535 - MultiplayerPortCount)
             errors.Add("profile.start-port-footprint.exceeds-range");
 
         if (GamePortFirst is >= 1 and <= 65535 &&
             StartPortFirst is >= 1 and <= 65535 &&
-            StartPortLast >= StartPortFirst && StartPortLast <= 65535)
+            StartPortLast >= StartPortFirst && StartPortLast <= 65535 &&
+            MaximumParticipantsPerMatch is >= 2 and <= 64)
         {
             var multiplayerFirst = StartPortFirst + 1;
-            var multiplayerLast = Math.Min(65535, StartPortLast + MultiplayerPortSpan);
+            var multiplayerLast = Math.Min(65535, StartPortLast + MultiplayerPortCount);
             if (GamePortFirst <= multiplayerLast && multiplayerFirst <= GamePortLast)
                 errors.Add("profile.port-ranges.overlap");
         }
 
         if (MaximumConcurrentMatches <= 0)
             errors.Add("profile.concurrency.invalid");
-        else
+        else if (MaximumParticipantsPerMatch is >= 2 and <= 64)
         {
             var gameCapacity = (long)GamePortLast - GamePortFirst + 1;
             var startCapacity = StartPortFirst <= StartPortLast
                 ? ((long)StartPortLast - StartPortFirst) / MultiplayerPortStride + 1
                 : 0;
-            if (gameCapacity < (long)MaximumConcurrentMatches * 2)
+            if (gameCapacity < (long)MaximumConcurrentMatches * MaximumParticipantsPerMatch)
                 errors.Add("profile.game-port-capacity.insufficient");
             if (startCapacity < MaximumConcurrentMatches)
                 errors.Add("profile.start-port-capacity.insufficient");
