@@ -53,12 +53,12 @@ ISc2SessionRuntime is an injected trusted boundary. The bridge does not yet laun
 ## First implementation boundary
 
 The core provides:
-- validation of trusted SC2 server profiles;
-- bounded, process-local allocation of game/start port resources (current single-pair model is provisional and not yet topology-correct);
-- explicit lease disposal and reuse;
-- a ServerApp adapter bridge with typed launch requests and session-scoped port ownership.
+- validation of trusted SC2 server profiles against the complete 1v1 port footprint;
+- atomic, process-local allocation of two distinct SC2 listener ports and one shared multiplayer block (StartPort+1 through StartPort+5);
+- explicit lease disposal and slot reuse;
+- a ServerApp adapter bridge with typed per-participant launch records, distinct listener ports, and a trusted host designation.
 
-A lease is not an OS socket reservation. The process supervisor must still handle bind failures, verify the actual game process, and clean up all child processes and leases on every terminal path. The current one-game-port/one-start-base lease is insufficiently specified for two SC2 listener processes and the protocol's shared/server/client port sets; do not use it for real matches until the complete footprint is proven.
+The StartPort candidate bases are allocated six ports apart so each match owns a non-overlapping five-port block. A lease is not an OS socket reservation. The process supervisor must still handle bind failures, verify the actual game processes, and clean up all child processes and leases on every terminal path.
 
 ## First vertical slice
 
