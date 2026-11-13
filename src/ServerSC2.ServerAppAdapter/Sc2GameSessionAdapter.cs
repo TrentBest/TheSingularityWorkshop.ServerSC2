@@ -163,13 +163,13 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
 
             var observed = await _runtime.StartAsync(launch, cancellationToken).ConfigureAwait(false);
             var snapshot = ValidateAndTranslate(observed, assignment.MatchId, request.SessionId);
-            if (snapshot.State != GameSessionState.Ready)
+            if (snapshot.State == GameSessionState.Failed)
             {
                 await StopAndReleaseAsync(request.SessionId, active).ConfigureAwait(false);
-                if (snapshot.State == GameSessionState.Failed)
-                    return snapshot;
-                throw new InvalidOperationException("The SC2 runtime must complete all game and participant readiness checks before returning.");
+                return snapshot;
             }
+            if (snapshot.State != GameSessionState.Ready)
+                throw new InvalidOperationException("The SC2 runtime must complete all game and participant readiness checks before returning.");
 
             return snapshot;
         }
