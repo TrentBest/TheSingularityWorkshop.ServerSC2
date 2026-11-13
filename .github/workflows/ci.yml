@@ -35,3 +35,11 @@ jobs:
       - name: Run contract checks
         working-directory: TheSingularityWorkshop.ServerSC2
         run: dotnet run --project tests/ServerSC2.ContractChecks/ServerSC2.ContractChecks.csproj --configuration Release
+      - name: Upload contract check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-sc2-contract-check-results
+          path: TheSingularityWorkshop.ServerSC2/contract-check-results.json
+          if-no-files-found: error
+          retention-days: 14
