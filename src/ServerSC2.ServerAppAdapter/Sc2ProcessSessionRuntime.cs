@@ -108,8 +108,8 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
             {
                 var startInfo = new ProcessStartInfo
                 {
-                    FileName = _options.StarCraftExecutablePath,
-                    WorkingDirectory = _options.StarCraftWorkingDirectory,
+                    FileName = Path.GetFullPath(_options.StarCraftExecutablePath),
+                    WorkingDirectory = Path.GetFullPath(_options.StarCraftWorkingDirectory),
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
@@ -125,8 +125,11 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
             foreach (var participant in request.Participants)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var runnerPath = _runnerResolver.ResolveRunnerExecutable(participant.BotBuild);
-                if (string.IsNullOrWhiteSpace(runnerPath) || !File.Exists(runnerPath))
+                var resolvedRunnerPath = _runnerResolver.ResolveRunnerExecutable(participant.BotBuild);
+                if (string.IsNullOrWhiteSpace(resolvedRunnerPath))
+                    throw new FileNotFoundException("The immutable bot build runner executable was not resolved.");
+                var runnerPath = Path.GetFullPath(resolvedRunnerPath);
+                if (!File.Exists(runnerPath))
                     throw new FileNotFoundException("The immutable bot build runner executable was not found.", runnerPath);
 
                 var opponent = request.Participants.Single(p => p.ParticipantId != participant.ParticipantId);
@@ -146,7 +149,7 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
                 {
                     startInfo.ArgumentList.Add("--CreateGame");
                     startInfo.ArgumentList.Add("--Map");
-                    startInfo.ArgumentList.Add(_options.MapPath);
+                    startInfo.ArgumentList.Add(Path.GetFullPath(_options.MapPath));
                 }
 
                 var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
