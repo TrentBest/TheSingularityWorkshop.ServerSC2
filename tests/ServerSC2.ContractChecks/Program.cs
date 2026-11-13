@@ -21,6 +21,7 @@ var checks = new (string Name, Action Run)[]
     ("observer process plan rejects invalid build and port boundaries", ObserverPlanRejectsInvalidBoundaries),
     ("observer process plan requires pinned runtime metadata", ObserverPlanRequiresRuntimeMetadata),
     ("observer process plan snapshots caller-owned participant collections", ObserverPlanSnapshotsParticipants),
+    ("observer process plan enumerates caller-owned participant collection once", ObserverPlanEnumeratesParticipantsOnce),
     ("observer process plan rejects null participant entries", ObserverPlanRejectsNullParticipant),
     ("observer process plan preserves multi-team and FFA assignments", ObserverPlanPreservesTeamAssignments),
     ("observer process plan rejects duplicate participant identities and ports", ObserverPlanRejectsDuplicateIdentityAndPorts)
@@ -278,6 +279,17 @@ static void ObserverPlanSnapshotsParticipants()
         "The plan retained a mutable participant collection instead of its validated snapshot.");
 }
 
+static void ObserverPlanEnumeratesParticipantsOnce()
+{
+    var valid = ObserverLaunchRequest(2);
+    var oneShot = new OneShotParticipantList(valid.Participants);
+    var request = valid with { Participants = oneShot };
+
+    var plan = Sc2MatchProcessPlan.Create(request);
+    Assert(oneShot.EnumerationCount == 1, "The caller-owned participant collection was enumerated more than once.");
+    Assert(plan.BotRunners.Count == 2, "The plan did not retain the complete participant snapshot.");
+}
+
 static void ObserverPlanRejectsNullParticipant()
 {
     var valid = ObserverLaunchRequest(2);
@@ -466,4 +478,29 @@ sealed class FakeSc2Runtime : ISc2SessionRuntime
 
     public ValueTask StopAsync(string sessionId, CancellationToken cancellationToken = default) =>
         ValueTask.CompletedTask;
+}
+
+
+sealed class OneShotParticipantList : IReadOnlyList<Sc2ParticipantLaunch>
+{
+    private readonly IReadOnlyList<Sc2ParticipantLaunch> _items;
+
+    public OneShotParticipantList(IReadOnlyList<Sc2ParticipantLaunch> items) => _items = items;
+
+    public int EnumerationCount { get; private set; }
+
+    public int Count => _items.Count;
+
+    public Sc2ParticipantLaunch this[int index] => _items[index];
+
+    public IEnumerator<Sc2ParticipantLaunch> GetEnumerator()
+    {
+        EnumerationCount++;
+        if (EnumerationCount > 1)
+            throw new InvalidOperationException("The participant collection may only be enumerated once.");
+
+        return _items.GetEnumerator();
+    }
+
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 }
