@@ -9,7 +9,8 @@ ServerApp (game-neutral competition host)
   -> IGameSessionAdapter / immutable MatchAssignment
   -> ServerSC2.ServerAppAdapter
   -> SimulationServer / ISc2SessionRuntime
-       + authoritative SC2 simulation host
+       + SC2 multiplayer host instance (distinct listener)
+       + SC2 multiplayer joining instance (distinct listener)
        + SingularityBot runner A (admitted build A)
        + SingularityBot runner B (admitted build B)
        + readiness, lifecycle, replay, result evidence
@@ -26,7 +27,7 @@ FSM_COS composes approved MicroBundles. ServerSC2 configures and supervises the 
 | Competition definitions, immutable match assignments, bot-build admission | ServerApp |
 | Generic IGameSessionAdapter contract and lifecycle validation | ServerApp.Core |
 | SC2 maps, game version, player slots, port topology, launch policy | ServerSC2 |
-| SC2 simulation process lifecycle and health/readiness | ServerSC2 SimulationServer |
+| Both SC2 instance lifecycles, multiplayer host/join orchestration, health/readiness | ServerSC2 SimulationServer |
 | Independent bot runner processes and session attachment | ServerSC2 SimulationServer |
 | Bot strategy and bot-side SC2 protocol adapter | SingularityBot |
 | Reusable MicroBundle artifacts | Experiences |
@@ -39,7 +40,7 @@ ServerSC2 must not copy the generic bot-build registry or implement its own comp
 
 The SC2 server profile is trusted deployment configuration. It pins the adapter/game version, map identity, bounded port ranges, and maximum concurrency. It is not a client-supplied match payload. Executable paths, environment allowlists, process limits, and working directories must come from trusted host configuration and artifact resolution—not from participant metadata.
 
-Every session is built from an immutable admitted match assignment. A match must not become Ready until the SC2 simulation and both required participant runners have independently passed protocol-level readiness checks.
+Every session is built from an immutable admitted match assignment. A match uses two SC2 instances with distinct WebSocket listener ports. A match must not become Ready until the host-created multiplayer session and both required participant runners have independently passed protocol-level readiness checks.
 
 ## ServerApp adapter bridge
 
@@ -53,11 +54,11 @@ ISc2SessionRuntime is an injected trusted boundary. The bridge does not yet laun
 
 The core provides:
 - validation of trusted SC2 server profiles;
-- bounded, process-local allocation of distinct game/start port pairs;
+- bounded, process-local allocation of game/start port resources (current single-pair model is provisional and not yet topology-correct);
 - explicit lease disposal and reuse;
 - a ServerApp adapter bridge with typed launch requests and session-scoped port ownership.
 
-A lease is not an OS socket reservation. The process supervisor must still handle bind failures, verify the actual game process, and clean up all child processes and leases on every terminal path. The current one-game-port/one-start-base lease has not yet been proven sufficient for two ladder clients.
+A lease is not an OS socket reservation. The process supervisor must still handle bind failures, verify the actual game process, and clean up all child processes and leases on every terminal path. The current one-game-port/one-start-base lease is insufficiently specified for two SC2 listener processes and the protocol's shared/server/client port sets; do not use it for real matches until the complete footprint is proven.
 
 ## First vertical slice
 
