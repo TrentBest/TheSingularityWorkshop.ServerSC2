@@ -116,6 +116,76 @@ def exchange_protocol(
     return response, event
 
 
+
+def build_create_game_request(
+    sc2api_pb2: Any,
+    map_path: str,
+    participant_count: int,
+    random_seed: int | None = None,
+    realtime: bool = False,
+) -> Any:
+    """Build CreateGame only from fields present in the pinned SC2API schema."""
+    if not map_path or not map_path.strip():
+        raise ValueError("A local map path is required")
+    if participant_count < 1:
+        raise ValueError("At least one participant is required")
+    request = sc2api_pb2.Request()
+    create_game = request.create_game
+    create_game.local_map.map_path = map_path
+    for _ in range(participant_count):
+        create_game.player_setup.add(type=sc2api_pb2.Participant)
+    if random_seed is not None:
+        if not 0 <= random_seed <= 0xFFFFFFFF:
+            raise ValueError("Random seed must fit uint32")
+        create_game.random_seed = random_seed
+    create_game.realtime = realtime
+    return request
+
+
+def build_join_game_request(
+    sc2api_pb2: Any,
+    *,
+    race: int | None = None,
+    observed_player_id: int | None = None,
+    server_ports: tuple[int, int] | None = None,
+    client_ports: tuple[tuple[int, int], ...] = (),
+    player_name: str | None = None,
+    host_ip: str | None = None,
+) -> Any:
+    """Build a join request; port values are explicit inputs, never inferred."""
+    if (race is None) == (observed_player_id is None):
+        raise ValueError("Specify exactly one of race or observed_player_id")
+    if observed_player_id is not None and not 0 <= observed_player_id <= 0xFFFFFFFF:
+        raise ValueError("Observed player ID must fit uint32")
+
+    port_pairs = ([server_ports] if server_ports is not None else []) + list(client_ports)
+    flattened = [port for pair in port_pairs for port in pair]
+    if any(not 1 <= port <= 65535 for port in flattened):
+        raise ValueError("Every explicit port must be between 1 and 65535")
+    if len(flattened) != len(set(flattened)):
+        raise ValueError("Explicit join ports must not overlap")
+
+    request = sc2api_pb2.Request()
+    join_game = request.join_game
+    if race is not None:
+        join_game.race = race
+    else:
+        join_game.observed_player_id = observed_player_id
+    join_game.options.raw = True
+    if server_ports is not None:
+        join_game.server_ports.game_port = server_ports[0]
+        join_game.server_ports.base_port = server_ports[1]
+    for game_port, base_port in client_ports:
+        port_set = join_game.client_ports.add()
+        port_set.game_port = game_port
+        port_set.base_port = base_port
+    if player_name is not None:
+        join_game.player_name = player_name
+    if host_ip is not None:
+        join_game.host_ip = host_ip
+    return request
+
+
 def ping_process(
     port: int, timeout: float, log_path: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
