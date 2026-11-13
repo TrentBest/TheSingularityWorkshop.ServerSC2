@@ -1,4 +1,6 @@
 using ServerSC2.Core;
+using ServerSC2.ServerAppAdapter;
+using ServerApp.Core;
 
 var checks = new (string Name, Action Run)[]
 {
@@ -8,7 +10,10 @@ var checks = new (string Name, Action Run)[]
     ("leases allocate distinct game and start ports", LeasesAreDistinct),
     ("pool enforces maximum concurrency", PoolEnforcesCapacity),
     ("disposing a lease makes its slot reusable", DisposedLeaseIsReusable),
-    ("lease disposal is idempotent", LeaseDisposalIsIdempotent)
+    ("lease disposal is idempotent", LeaseDisposalIsIdempotent),
+    ("adapter maps immutable ServerApp assignments", AdapterMapsAssignment),
+    ("adapter rejects wrong game before allocating ports", AdapterRejectsWrongGame),
+    ("adapter releases a lease when runtime startup fails", AdapterReleasesOnStartupFailure)
 };
 
 var failures = new List<string>();
@@ -106,4 +111,88 @@ static void LeaseDisposalIsIdempotent()
 static void Assert(bool condition, string message)
 {
     if (!condition) throw new InvalidOperationException(message);
+}
+
+
+static CompetitionDefinition TestCompetition() => new(
+    "sc2-ladder", Sc2GameSessionAdapter.StarCraftIIGameId, "ladder-rules", "1",
+    [new CompetitionMatchFormat("1v1", [1, 1])]);
+
+static MatchAssignment TestAssignment(string gameId = Sc2GameSessionAdapter.StarCraftIIGameId) => new(
+    "match-001", "sc2-ladder", gameId, "ladder-rules", "1", "1v1", "0.1.0",
+    DateTimeOffset.UtcNow,
+    [
+        new MatchParticipantAssignment("p1", "team-a", new BotBuildReference("bot-a", "build-a", new string('a', 64))),
+        new MatchParticipantAssignment("p2", "team-b", new BotBuildReference("bot-b", "build-b", new string('b', 64)))
+    ]);
+
+static Sc2GameSessionAdapter CreateAdapter(Sc2PortLeasePool pool, FakeSc2Runtime runtime) =>
+    new(ValidProfile(), pool, runtime);
+
+static void AdapterMapsAssignment()
+{
+    var pool = new Sc2PortLeasePool(ValidProfile());
+    var runtime = new FakeSc2Runtime();
+    using var adapter = CreateAdapter(pool, runtime);
+    var result = adapter.StartAsync(new GameSessionStartRequest(TestAssignment(), "session-001"))
+        .AsTask().GetAwaiter().GetResult();
+    Assert(result.State == GameSessionState.Ready, "Adapter did not return Ready.");
+    Assert(runtime.LastRequest is not null, "Runtime did not receive a launch request.");
+    Assert(runtime.LastRequest!.Participants.Count == 2, "Expected two participant launch records.");
+    Assert(runtime.LastRequest.Participants[0].BotBuild.BuildId == "build-a", "First immutable build was not preserved.");
+    Assert(pool.ActiveLeaseCount == 1, "Port lease was not retained for the active session.");
+    adapter.StopAsync("session-001").AsTask().GetAwaiter().GetResult();
+    Assert(pool.ActiveLeaseCount == 0, "Port lease was not released after stop.");
+}
+
+static void AdapterRejectsWrongGame()
+{
+    var pool = new Sc2PortLeasePool(ValidProfile());
+    var runtime = new FakeSc2Runtime();
+    using var adapter = CreateAdapter(pool, runtime);
+    try
+    {
+        adapter.StartAsync(new GameSessionStartRequest(TestAssignment("another-game"), "session-002"))
+            .AsTask().GetAwaiter().GetResult();
+        throw new InvalidOperationException("Expected wrong-game rejection.");
+    }
+    catch (InvalidOperationException exception) when (exception.Message.Contains("different game", StringComparison.Ordinal)) { }
+    Assert(pool.ActiveLeaseCount == 0, "Wrong-game assignment consumed a port lease.");
+}
+
+static void AdapterReleasesOnStartupFailure()
+{
+    var pool = new Sc2PortLeasePool(ValidProfile());
+    var runtime = new FakeSc2Runtime { ThrowOnStart = true };
+    using var adapter = CreateAdapter(pool, runtime);
+    try
+    {
+        adapter.StartAsync(new GameSessionStartRequest(TestAssignment(), "session-003"))
+            .AsTask().GetAwaiter().GetResult();
+        throw new InvalidOperationException("Expected runtime startup failure.");
+    }
+    catch (InvalidOperationException exception) when (exception.Message == "synthetic startup failure") { }
+    Assert(pool.ActiveLeaseCount == 0, "Startup failure leaked the port lease.");
+}
+
+sealed class FakeSc2Runtime : ISc2SessionRuntime
+{
+    public Sc2SessionLaunchRequest? LastRequest { get; private set; }
+    public bool ThrowOnStart { get; init; }
+
+    public ValueTask<Sc2RuntimeSessionSnapshot> StartAsync(
+        Sc2SessionLaunchRequest request, CancellationToken cancellationToken = default)
+    {
+        LastRequest = request;
+        if (ThrowOnStart) throw new InvalidOperationException("synthetic startup failure");
+        return ValueTask.FromResult(new Sc2RuntimeSessionSnapshot(
+            request.MatchId, request.SessionId, ServerApp.Core.GameSessionState.Ready, DateTimeOffset.UtcNow));
+    }
+
+    public ValueTask<Sc2RuntimeSessionSnapshot?> GetStatusAsync(
+        string sessionId, CancellationToken cancellationToken = default) =>
+        ValueTask.FromResult<Sc2RuntimeSessionSnapshot?>(null);
+
+    public ValueTask StopAsync(string sessionId, CancellationToken cancellationToken = default) =>
+        ValueTask.CompletedTask;
 }
