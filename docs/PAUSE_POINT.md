@@ -6,12 +6,15 @@
 - ServerSC2.Core contains trusted profile validation and bounded process-local game/start port leases.
 - ServerSC2.ServerAppAdapter implements ServerApp.Core's IGameSessionAdapter contract through a source project reference. It validates game and adapter-version identity, translates the immutable two-participant assignment into a typed SC2 launch request, and retains/releases its port lease with session lifecycle.
 - ISc2SessionRuntime is an injected boundary only. No concrete SimulationServer process supervisor or bot launcher exists yet.
-- The intended runtime is one hosted authoritative SC2 match plus two independently launched SingularityBot runners, not two local single-player games.
+- The intended runtime is a SimulationServer hosting one authoritative multiplayer match through two separate SC2 instances, with two independently launched SingularityBot runners.
 - Contract checks cover profile/lease behavior and the adapter's assignment mapping, wrong-game rejection, and startup-failure lease cleanup.
 
-## Verified bot integration
+## Verified integration facts
 
-The SingularityBot development source confirms that its runner forwards ladder arguments to GameConnection.RunLadder, which connects to the supplied GamePort and builds SC2 shared/server/client port sets from StartPort. Its local mode launches SC2 and creates a bot-vs-computer game; that is not the competition-host path. The exact allocation/sharing of ports between two runners remains unresolved.
+- Blizzard's SC2API multiplayer flow launches two SC2 instances on separate listener ports, designates one host to issue CreateGame, and joins both clients to that game.
+- SingularityBot's ladder runner connects to one supplied GamePort and issues JoinGameLadder; each runner therefore needs its own SC2 listener endpoint.
+- The current SingularityBot RunLadder path does not create the game. Its local mode creates a separate bot-vs-computer game and is not suitable for the 1v1 host.
+- JoinGameLadder computes shared/server/client port offsets from StartPort, but the correct shared-vs-distinct StartPort allocation and host WebSocket handoff are not yet proven.
 
 See SIMULATION_SERVER.md and SC2_RUNTIME_PROTOCOL.md.
 
@@ -21,11 +24,12 @@ The GitHub Actions workflow checks out ServerApp's development source alongside 
 
 ## Next work
 
-1. Prove the exact two-runner SC2 port and process topology from the ladder-manager contract and protocol behavior.
-2. Define typed per-participant runner launch data from the immutable assignment.
-3. Implement a trusted process supervisor with fixed host-owned executable paths and arguments.
-4. Launch both independently admitted bot builds and establish protocol-level readiness.
-5. Capture authoritative result and replay evidence, then add append-oriented durable session history.
+1. Close the host CreateGame / bot join WebSocket ownership question against a runnable SC2 build.
+2. Prove the StartPort sharing model and calculate the complete non-overlapping port footprint for two SC2 instances plus their multiplayer communication ports.
+3. Implement typed per-participant runner launch data and a testable port-footprint allocator.
+4. Implement a trusted process supervisor for both SC2 instances and both admitted SingularityBot runners.
+5. Establish protocol-level readiness, authoritative result/replay capture, and bounded cleanup.
+6. Add append-oriented durable session history after lifecycle evidence is trustworthy.
 
 ## Boundaries
 
