@@ -38,7 +38,8 @@ public sealed record Sc2ProcessRuntimeOptions(
 /// <summary>
 /// Owns the two SC2 processes and two immutable-build runner processes for each match.
 /// Ready is returned only after both runners report protocol-level join acknowledgements.
-/// Result markers are observed from both runners; they are not used to infer a winner here.
+/// Runner result markers are diagnostics only. Completion requires separately validated
+/// host-authoritative terminal results and replay evidence.
 /// </summary>
 public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposable
 {
@@ -218,10 +219,14 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
                 return Failed(session, "runner.result-player-mismatch",
                     "A runner's terminal result marker did not match its acknowledged SC2 player ID.");
 
-            if (session.Runners.Count == 2 && session.Runners.All(r => r.Result.Task.IsCompletedSuccessfully))
-                return new(session.MatchId, session.SessionId, GameSessionState.Completed, DateTimeOffset.UtcNow);
-
-            return new(session.MatchId, session.SessionId, GameSessionState.Running, DateTimeOffset.UtcNow);
+            // Runner stdout is untrusted input. Even two matching SC2_RESULT markers
+            // cannot certify a match outcome. Until an observer-backed evidence source
+            // supplies validated terminal results AND validated replay evidence, remain
+            // non-terminal rather than manufacturing a Completed state.
+            var state = Sc2MatchCompletionGate.Evaluate(
+                authoritativeResultsValidated: false,
+                replayEvidenceValidated: false);
+            return new(session.MatchId, session.SessionId, state, DateTimeOffset.UtcNow);
         }
         finally
         {
@@ -382,4 +387,19 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
 
     private static Sc2RuntimeSessionSnapshot Failed(Session session, string code, string message) =>
         new(session.MatchId, session.SessionId, GameSessionState.Failed, DateTimeOffset.UtcNow, code, message);
+}
+
+
+/// <summary>
+/// Fail-closed lifecycle gate. Runner stdout is deliberately not an input: only independently
+/// validated host-authoritative terminal results and replay evidence can complete a match.
+/// </summary>
+public static class Sc2MatchCompletionGate
+{
+    public static GameSessionState Evaluate(
+        bool authoritativeResultsValidated,
+        bool replayEvidenceValidated) =>
+        authoritativeResultsValidated && replayEvidenceValidated
+            ? GameSessionState.Completed
+            : GameSessionState.Running;
 }
