@@ -42,12 +42,14 @@ public sealed record Sc2ProcessRuntimeOptions(
 /// </summary>
 public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposable
 {
+    private sealed record RunnerResult(uint PlayerId, string Result);
+
     private sealed class Runner
     {
         public required Process Process { get; init; }
         public TaskCompletionSource<uint> Joined { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource<string> Result { get; } =
+        public TaskCompletionSource<RunnerResult> Result { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public string? LastError { get; set; }
     }
@@ -206,6 +208,13 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
                 return Failed(session, "runner.exited-without-result",
                     failedRunner.LastError ?? $"Bot runner exited with code {SafeExitCode(failedRunner.Process)}.");
 
+            var mismatchedResult = session.Runners.FirstOrDefault(r =>
+                r.Result.Task.IsCompletedSuccessfully && r.Joined.Task.IsCompletedSuccessfully &&
+                r.Result.Task.Result.PlayerId != r.Joined.Task.Result);
+            if (mismatchedResult is not null)
+                return Failed(session, "runner.result-player-mismatch",
+                    "A runner's terminal result marker did not match its acknowledged SC2 player ID.");
+
             if (session.Runners.Count == 2 && session.Runners.All(r => r.Result.Task.IsCompletedSuccessfully))
                 return new(session.MatchId, session.SessionId, GameSessionState.Completed, DateTimeOffset.UtcNow);
 
@@ -315,9 +324,15 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
             runner.Joined.TrySetResult(playerId);
         else if (line.StartsWith(resultPrefix, StringComparison.Ordinal))
         {
-            var result = line[resultPrefix.Length..];
-            if (!string.IsNullOrWhiteSpace(result))
-                runner.Result.TrySetResult(result);
+            var payload = line[resultPrefix.Length..];
+            var separator = payload.IndexOf(" result=", StringComparison.Ordinal);
+            if (separator > 0 &&
+                uint.TryParse(payload.AsSpan(0, separator), NumberStyles.None, CultureInfo.InvariantCulture, out var playerId))
+            {
+                var result = payload[(separator + " result=".Length)..];
+                if (!string.IsNullOrWhiteSpace(result))
+                    runner.Result.TrySetResult(new RunnerResult(playerId, result));
+            }
         }
     }
 
