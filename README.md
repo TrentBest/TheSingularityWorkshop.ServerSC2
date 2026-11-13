@@ -23,8 +23,8 @@ Only trusted host configuration may choose the SC2 installation, maps, runtime r
 
 Work on `development`. Keep `master` aligned with the last released state; do not publish, merge, release, or deploy without explicit authorization.
 
-The current source is an initial domain foundation: validated server profiles and process-local port-pair leases. These leases prevent collisions among this host's own concurrent matches; they are not OS-level socket reservations and do not replace process-startup bind/error handling.
+The current foundation includes validated server profiles, process-local port-pair leases, and a ServerApp `IGameSessionAdapter` bridge. The bridge is wired to an injected `ISc2SessionRuntime` contract; the actual SC2 process supervisor and participant launcher are not implemented yet. Port leases prevent collisions among this host's own concurrent matches; they are not OS-level socket reservations.
 
 ## Status
 
-See [the architecture](docs/ARCHITECTURE.md) and [the pause point](docs/PAUSE_POINT.md). The SC2 process supervisor, actual game launch, bot attachment, replay/result evidence, and ServerApp adapter bridge remain implementation work.
+See [the architecture](docs/ARCHITECTURE.md) and [the pause point](docs/PAUSE_POINT.md). Next: implement the trusted SC2 runtime/process supervisor, bot attachment, readiness, replay/result evidence, and durable session journal.
