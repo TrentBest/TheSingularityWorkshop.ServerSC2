@@ -3,12 +3,13 @@
 ## Current state
 
 - Repository work is on development; branches are exactly master and development.
-- ServerSC2.Core currently leases two distinct SC2 listener ports plus one shared five-port multiplayer block per match. This is the existing two-client footprint, not yet validated for an observer plus multiple competitors.
+- ServerSC2.Core now reserves N participant listener ports plus a multiplayer block sized for one observer and N player clients. The block uses `2 * (N + 1) + 1` ports with a non-overlapping stride. This remains reservation planning, not live SC2 PortSet proof.
 - ServerSC2.ServerAppAdapter implements ServerApp.Core's IGameSessionAdapter contract through a source project reference.
 - The current Sc2ProcessSessionRuntime launches two SC2 instances and two admitted runner executables. One participant runner currently receives CreateGame authority; this is the old 1v1 topology and must be replaced.
 - The current adapter and runtime explicitly reject participant counts other than two. Team IDs are carried in launch records but the runtime does not yet implement team-aware SC2 setup or format-aware results.
+- `Sc2MatchProcessPlan` now describes one neutral observer plus N participant SC2 clients and N bot runners. It validates pinned adapter/game/map metadata, participant identity/team/build SHA-256/listener ports, unique IDs/ports, observer-only CreateGame authority, and the complete multiplayer port block. It snapshots caller-owned participant collections before validation so later mutation cannot change the plan. This plan is not yet consumed by the process supervisor.
 - ISc2BotRunnerResolver is the trusted artifact-resolution boundary. Its implementation must resolve immutable build IDs and verify each artifact against its admitted SHA-256; this repository does not yet provide the artifact store/resolver.
-- Contract checks cover profile/lease behavior, adapter assignment mapping, wrong-game rejection, startup-failure lease cleanup, and rejection of a runtime status carrying the wrong admitted match ID.
+- Contract checks cover profile/lease behavior, adapter assignment mapping, wrong-game rejection, startup-failure lease cleanup, mismatched runtime identity, observer authority isolation, participant scaling, port/build boundaries, required runtime metadata, mutable-input snapshotting, and null participant rejection.
 - The process supervisor is compiled by CI but has not been exercised against a live SC2 installation.
 
 ## Agreed target architecture
@@ -25,6 +26,12 @@ A match assignment defines N entrants, immutable build identities, a competition
 SingularityBot and ExampleBot are development foundations bot authors may choose to use. The generic host contract must also admit independent bots that implement the documented runner and SC2API compatibility requirements.
 
 This is a target architecture, not live verified. The exact observer join, PortSet scaling, team mapping, and result semantics remain proof gates. See [OBSERVER_HOST_DESIGN.md](OBSERVER_HOST_DESIGN.md).
+
+## Observer process-plan status
+
+The process-plan contract is now a validated intermediate representation, not an executable runtime. It has one observer process at ordinal zero, with no participant identity or participant listener, and exactly one CreateGame authority. Participant SC2 clients have distinct participant identities/listener ports and no CreateGame authority; each participant has one corresponding runner. The contract currently exercises participant counts through the 64-entrant upper bound.
+
+The existing process supervisor remains the old two-client competitor-host implementation. It must not be described as observer-hosted, and the observer plan must not be wired into production launch until a real controller can own CreateGame, observer join/readiness, match lifecycle, and authoritative result/replay capture. This separation intentionally prevents a data-only plan from being mistaken for a working observer runtime.
 
 ## Next implementation gates
 
