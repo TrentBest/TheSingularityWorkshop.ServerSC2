@@ -31,7 +31,7 @@ public sealed record Sc2ServerProfile(
 
         if (GamePortFirst is >= 1 and <= 65535 &&
             StartPortFirst is >= 1 and <= 65535 &&
-            StartPortLast is >= StartPortFirst and <= 65535)
+            StartPortLast >= StartPortFirst && StartPortLast <= 65535)
         {
             var multiplayerFirst = StartPortFirst + 1;
             var multiplayerLast = Math.Min(65535, StartPortLast + MultiplayerPortSpan);
