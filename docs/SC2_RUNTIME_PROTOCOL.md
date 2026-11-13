@@ -75,3 +75,27 @@ The allocator leases two distinct listener ports and one shared StartPort base w
 ## Implementation gate
 
 The `Sc2ProcessSessionRuntime` now owns fixed SC2 launch arguments, two SC2 process handles, two runner process handles, join-marker readiness, result-marker observation, and process-tree termination. The trusted artifact resolver, result/player identity validation, replay capture, durable evidence, and live-SC2 proof remain open. The port allocator is process-local rather than an OS socket reservation.
+
+## Observer-host target topology (not yet proven)
+
+The agreed target for fair 1v1 matches is three SC2 client processes: a dedicated simulation-host process that creates the game and joins as an observer, plus one player SC2 process for each admitted bot. Neither competitor receives CreateGame authority.
+
+The protocol's `RequestJoinGame` participation oneof supports either `race` (player) or `observed_player_id` (observer). Observer actions are a separate request type from player actions. The protocol comments describe the conventional two-player CreateGame/JoinGame flow, but that alone does not prove that a dedicated host can CreateGame and then join as an observer while two other clients join as players.
+
+The following are explicit unresolved questions, not assumptions:
+- Does the pinned SC2 build accept CreateGame followed by RequestJoinGame(observer) on the same dedicated host connection?
+- Does `observed_player_id = 0` provide the intended all-player observer perspective in this live multiplayer flow?
+- What exact server PortSet and repeated client PortSet collection must be supplied by the observer and both players?
+- Does the current SingularityBot JoinGameLadder port arithmetic correctly represent the full three-client topology, or must the bot-side adapter contract change?
+- Can the observer independently obtain terminal player results and save the authoritative replay without giving either bot access to observer data?
+
+The current ServerSC2 source still launches two SC2 processes and two runners, and the current SingularityBot host runner sends CreateGame before joining as a player. That is the old competitor-host topology. Do not claim that the observer-host design is implemented or live verified.
+
+The implementation order is therefore:
+1. Build a minimal live protocol proof for CreateGame + observer join + two player joins on the pinned SC2 build.
+2. Derive the complete PortSet layout from the reference coordinator and prove it with three clients.
+3. Add an observer-only process role to ServerSC2; remove CreateGame authority from both competitor launch records.
+4. Prove player observation isolation, result correlation, replay capture, and full cleanup.
+5. Only then replace the existing port lease model and enable observer-hosted sessions by default.
+
+See [OBSERVER_HOST_DESIGN.md](OBSERVER_HOST_DESIGN.md) for the complete process model, fairness policy, scaling boundary, and acceptance gates.
