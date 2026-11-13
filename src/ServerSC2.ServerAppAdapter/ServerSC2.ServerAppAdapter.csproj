@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <LangVersion>12.0</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <ServerAppSourceRoot Condition="'$(ServerAppSourceRoot)' == ''">$(MSBuildThisFileDirectory)../../TheSingularityWorkshop.ServerApp</ServerAppSourceRoot>
+    <ServerAppSourceRoot Condition="'$(ServerAppSourceRoot)' == ''">$(MSBuildThisFileDirectory)../../../TheSingularityWorkshop.ServerApp</ServerAppSourceRoot>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../ServerSC2.Core/ServerSC2.Core.csproj" />
