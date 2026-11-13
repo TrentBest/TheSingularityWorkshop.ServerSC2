@@ -20,7 +20,7 @@ ServerApp: immutable MatchAssignment (participant A + participant B)
        10. stop both SC2 and both runner process trees; release all resources
 ~~~
 
-The two SC2 processes have separate listener ports; one is the multiplayer host and one is the joining client. Each runner connects to its assigned SC2 listener. The two runner processes are independent: separate process identities, build hashes, working directories, bounded resource budgets, stdout/stderr streams, exit observations, and participant identities. Neither runner receives authority to launch or reconfigure the SC2 host.
+The two SC2 processes have separate listener ports; one is the multiplayer host and one is the joining client. Each runner connects to its assigned SC2 listener. The adapter assigns the first immutable assignment participant as host and the second as joiner; this is host policy, not a bot-selected role. The two runner processes are independent: separate process identities, build hashes, working directories, bounded resource budgets, stdout/stderr streams, exit observations, and participant identities. Neither runner receives authority to launch or reconfigure the SC2 host.
 
 ## Reuse the existing SingularityBot client
 
