@@ -30,7 +30,7 @@ See [the architecture](docs/ARCHITECTURE.md), [SimulationServer orchestration](d
 
 ## Status
 
-Next: prove the two-runner GamePort/StartPort topology, then implement the trusted SC2 process supervisor, two independent bot launches, protocol readiness, replay/result evidence, and durable session journal.
+Next: implement the trusted SC2 process supervisor, launch both admitted bot builds against their assigned SC2 listeners, verify protocol readiness, and capture authoritative replay/result evidence. A submission queue and cup progression remain later ServerApp competition-policy work; they are not prerequisites for proving a local 1v1 match.
 
 ---
 
