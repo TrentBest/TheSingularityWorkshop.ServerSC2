@@ -217,7 +217,7 @@ def run_probe(config: ProbeConfig) -> int:
             if process.poll() is None:
                 try:
                     if os.name == "nt":
-                        process.terminate()
+                        process.send_signal(signal.CTRL_BREAK_EVENT)
                     else:
                         os.killpg(process.pid, signal.SIGTERM)
                     process.wait(timeout=config.shutdown_timeout)
