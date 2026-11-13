@@ -113,3 +113,22 @@ Thus the reference coordinator allocates a 5-port multiplayer block for two clie
 There is also a concrete bot-side compatibility gap: the current SingularityBot `JoinGameLadder` populates only one `client_ports` entry. A three-client topology may require both client PortSets to be supplied by every joining client. Do not implement the observer topology by simply adding a third listener while retaining the current one-entry port payload. The player adapter contract must be updated and live-verified alongside the ServerSC2 lease model.
 
 Reference source: https://github.com/Blizzard/s2client-api/blob/master/src/sc2api/sc2_coordinator.cc (`Coordinator::SetupPorts`, `CoordinatorImp::JoinGame`).
+
+
+## Open bot ladder and variable participant formats
+
+The SingularityBot source notes above describe one current bot implementation; they are not the ServerSC2 host contract. ServerSC2 must not require SingularityBot's `JoinGameLadder`, generated protocol assembly, strategy library, or CLI flags. A bot developer may use SingularityBot/ExampleBot as a foundation for custom behavior, or submit an independently implemented SC2API client packaged behind the generic runner contract.
+
+The generic host contract must define only the boundary ServerSC2 needs:
+- immutable admitted build identity and content hash;
+- trusted runner artifact resolution and fixed launch policy;
+- one assigned SC2 listener endpoint per entrant;
+- match-scoped networking configuration required by the pinned SC2 client topology;
+- structured protocol join acknowledgement with the SC2 player ID;
+- terminal diagnostic/result reporting, with SC2 observer evidence remaining authoritative.
+
+Do not make `--OpponentId` or any strategy-specific argument mandatory. Opponents and teams are match-level concepts, not a bot runner's assumption that exactly one opponent exists.
+
+The match model is N entrants with explicit team assignments and a format. Target formats include 1v1, 2v2, 3v3, FFA, and multi-team formats such as 2v2v2, subject to live verification of SC2 player/team setup, player limits, observer behavior, PortSet semantics, and format-aware result reporting. The target process topology is one neutral observer host plus N player SC2 clients and N runners. Neither a fixed two-player topology nor the current two-player port arithmetic may be generalized by guesswork.
+
+A compatibility proof must run at least one SingularityBot-based runner and one independent bot through the same ServerSC2 host contract. Strategy and bot-side protocol implementations remain owned by their respective bot projects; ServerSC2 owns orchestration, isolation, fairness, and evidence.
