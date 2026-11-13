@@ -57,8 +57,9 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
 {
     public const string StarCraftIIGameId = "starcraft-ii";
 
-    private sealed class ActiveSession(Sc2PortLease lease)
+    private sealed class ActiveSession(string sessionId, Sc2PortLease lease)
     {
+        public string SessionId { get; } = sessionId;
         public Sc2PortLease Lease { get; } = lease;
         public SemaphoreSlim Gate { get; } = new(1, 1);
     }
@@ -124,7 +125,7 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
         if (!_ports.TryAcquire(out var lease) || lease is null)
             throw new InvalidOperationException("The SC2 host has reached its configured concurrent-match capacity.");
 
-        var active = new ActiveSession(lease);
+        var active = new ActiveSession(request.SessionId, lease);
         lock (_sessionsGate)
         {
             if (_disposed || !_sessions.TryAdd(request.SessionId, active))
@@ -241,7 +242,7 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
             await session.Gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
             try
             {
-                try { await _runtime.StopAsync(FindSessionId(session), CancellationToken.None).ConfigureAwait(false); }
+                try { await _runtime.StopAsync(session.SessionId, CancellationToken.None).ConfigureAwait(false); }
                 catch (Exception exception) { (failures ??= []).Add(exception); }
                 finally { session.Lease.Dispose(); }
             }
@@ -256,12 +257,6 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
 
         if (failures is not null)
             throw new AggregateException("One or more SC2 sessions failed to stop during adapter disposal.", failures);
-    }
-
-    private string FindSessionId(ActiveSession target)
-    {
-        lock (_sessionsGate)
-            return _sessions.First(pair => ReferenceEquals(pair.Value, target)).Key;
     }
 
     private GameSessionSnapshot ValidateAndTranslate(
