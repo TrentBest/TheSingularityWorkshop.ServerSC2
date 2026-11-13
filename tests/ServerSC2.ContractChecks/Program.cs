@@ -38,14 +38,14 @@ return failures.Count == 0 ? 0 : 1;
 
 static Sc2ServerProfile ValidProfile() => new(
     "sc2-local-1v1", "0.1.0", "5.0.14", "AbyssalReefLE",
-    5000, 5007, 6000, 6018, 4);
+    5000, 5007, 6000, 6024, 4);
 
 static void ValidProfileIsAccepted() =>
     Assert(ValidProfile().Validate().Count == 0, "Expected valid profile.");
 
 static void OverlappingRangesAreRejected()
 {
-    var profile = ValidProfile() with { StartPortFirst = 5000, StartPortLast = 5018 };
+    var profile = ValidProfile() with { GamePortFirst = 6000, GamePortLast = 6018 };
     Assert(profile.Validate().Contains("profile.port-ranges.overlap"), "Expected overlap rejection.");
 }
 
