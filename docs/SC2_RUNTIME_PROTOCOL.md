@@ -83,6 +83,26 @@ The following remain explicit live proof questions:
 
 The target design is described in [OBSERVER_HOST_DESIGN.md](OBSERVER_HOST_DESIGN.md). Do not change the production runtime topology until these questions have executable answers on the pinned build.
 
+## Standalone probe implementation (bootstrap milestone)
+
+The isolated developer tool now lives in `tools/sc2-probe/`. It uses Blizzard's generated `s2clientprotocol` package (pinned to 5.0.17.98310.0) and `websocket-client` (pinned to 1.9.2); neither is a ServerSC2 production dependency and neither imports or copies the SingularityBot adapter.
+
+The current bootstrap implementation is deliberately narrower than the full acceptance contract below:
+
+- no SC2 process starts unless `--execute` is supplied;
+- executable, installation directory, trusted map file, expected game version, output directory, listener-port availability, and positive timeouts are preflighted;
+- it launches three isolated local SC2 processes (observer candidate plus two player candidates), sends a protobuf RequestPing to each `/sc2api` endpoint, and records returned version/build metadata;
+- it writes a versioned `evidence.json`, per-role ping metadata, and stdout/stderr logs;
+- cleanup is bounded and attempts to terminate process groups/process trees.
+
+This is only a three-process/API-bootstrap proof. It does **not** yet issue CreateGame, join as observer or player, derive/verify the multiplayer PortSet, test information isolation, capture terminal results, or save/validate a replay. Its success status must never be interpreted as observer-topology proof or match readiness. CI runs only the preflight unit tests and never launches SC2.
+
+Install the pinned developer dependencies with `python -m pip install -r tools/sc2-probe/requirements.txt`. The invocation contract is intentionally explicit; do not run it until a trusted local SC2 build/map are selected:
+
+```powershell
+python tools/sc2-probe/sc2_probe.py --execute --executable <SC2.exe> --install-dir <SC2-install-dir> --map <TrustedMap.SC2Map> --expected-version <pinned-version> --output-dir <probe-output> --base-port 5000
+```
+
 ## Live proof harness acceptance contract
 
 The first implementation milestone is a standalone, opt-in protocol probe—not a production runtime replacement. It must be inert unless explicitly invoked with all required trusted inputs.
