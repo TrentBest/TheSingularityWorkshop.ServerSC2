@@ -51,15 +51,14 @@ The host runner now owns the CreateGame request on its own SC2 WebSocket connect
 
 ## Unresolved integration gate
 
-Before implementing a real process supervisor, prove these remaining details against a runnable SC2 build and the exact SingularityBot revision:
+The source-level allocator and typed adapter mapping now reserve a complete 1v1 port footprint. Remaining integration gates must be proved against a runnable SC2 build and the exact SingularityBot revision:
 
-1. Verify the host runner's new `--CreateGame --Map` path against a runnable SC2 build and ensure the map/player setup is accepted.
-2. Implement a match lease containing two distinct SC2 listener ports plus one shared StartPort base whose `+1..+5` multiplayer ports are reserved atomically; ensure no overlap across concurrent matches.
-3. Verify both runners join with the same multiplayer port set and receive the expected distinct player IDs.
-4. How the host observes both player identities/results and saves the replay after terminal state.
-5. Which process owns shutdown and how both SC2 processes and runner process trees are cleaned up after partial startup.
+1. Verify the host runner's new `--CreateGame --Map` path and map/player setup against a runnable SC2 build.
+2. Verify both runners join the same match with the shared multiplayer port set and receive the expected distinct player IDs.
+3. Verify how the host observes both player identities/results and saves the replay after terminal state.
+4. Prove shutdown ownership and cleanup of both SC2 processes and runner process trees after partial startup.
 
-Do not infer these details from parameter names. The existing ServerSC2 lease (one game port plus one start-port base) is insufficient: it must become two distinct listener ports plus one shared match-level StartPort base and its five reserved derived ports. Do not treat the current allocator as production-safe. Keep the runtime seam injected until this gate is closed.
+The allocator leases two distinct listener ports and one shared StartPort base with offsets `+1..+5` as one process-local unit. It is not an OS socket reservation, and it has not yet been exercised against a live SC2 installation. Keep the runtime seam injected until live handshake, result, replay, and cleanup gates are closed.
 
 ## Readiness and completion rules
 
@@ -73,4 +72,4 @@ Do not infer these details from parameter names. The existing ServerSC2 lease (o
 
 ## Implementation gate
 
-The `ISc2SessionRuntime` seam remains the right place for the concrete SimulationServer. Next implement a testable port-footprint model and process-supervision contracts only after the remaining handshake ownership and port-sharing questions are resolved. The runtime must own fixed host launch arguments, both SC2 process trees, both runner process trees, protocol-level readiness, authoritative result/replay capture, and bounded cleanup.
+The `ISc2SessionRuntime` seam remains the right place for the concrete SimulationServer. The testable port-footprint model and per-participant host/listener assignment now exist; next implement the trusted process supervisor and prove the full two-runner handshake against live SC2. The runtime must own fixed host launch arguments, both SC2 process trees, both runner process trees, protocol-level readiness, authoritative result/replay capture, and bounded cleanup.
