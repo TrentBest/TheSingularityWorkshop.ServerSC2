@@ -7,7 +7,9 @@ namespace ServerSC2.ServerAppAdapter;
 public sealed record Sc2ParticipantLaunch(
     string ParticipantId,
     string TeamId,
-    BotBuildReference BotBuild);
+    BotBuildReference BotBuild,
+    int GamePort,
+    bool IsGameHost);
 
 /// <summary>Trusted SC2 launch envelope. No executable path or arbitrary command-line input is accepted.</summary>
 public sealed record Sc2SessionLaunchRequest(
@@ -16,7 +18,6 @@ public sealed record Sc2SessionLaunchRequest(
     string AdapterVersion,
     string GameVersion,
     string MapId,
-    int GamePort,
     int StartPort,
     IReadOnlyList<Sc2ParticipantLaunch> Participants);
 
@@ -151,10 +152,14 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
                 AdapterVersion,
                 _profile.GameVersion,
                 _profile.MapId,
-                lease.GamePort,
                 lease.StartPort,
-                Array.AsReadOnly(assignment.Participants.Select(p =>
-                    new Sc2ParticipantLaunch(p.ParticipantId, p.TeamId, p.BotBuild)).ToArray()));
+                Array.AsReadOnly(assignment.Participants.Select((p, index) =>
+                    new Sc2ParticipantLaunch(
+                        p.ParticipantId,
+                        p.TeamId,
+                        p.BotBuild,
+                        index == 0 ? lease.HostGamePort : lease.JoinerGamePort,
+                        index == 0)).ToArray()));
 
             var observed = await _runtime.StartAsync(launch, cancellationToken).ConfigureAwait(false);
             var snapshot = ValidateAndTranslate(observed, assignment.MatchId, request.SessionId);
