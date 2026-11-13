@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/ServerSC2.Core/ServerSC2.Core.csproj" />
+    <ProjectReference Include="../../src/ServerSC2.ServerAppAdapter/ServerSC2.ServerAppAdapter.csproj" />
   </ItemGroup>
 </Project>
