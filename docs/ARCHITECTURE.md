@@ -2,39 +2,32 @@
 
 ## Purpose
 
-ServerSC2 is the StarCraft II-specific game-session host. It sits beside ServerApp rather than inside it:
+ServerSC2 is the StarCraft II-specific game-session host. Its runtime is a SimulationServer: it hosts an authoritative SC2 simulation and connects two independent bot runner processes to that match.
 
-```text
+~~~text
 ServerApp (game-neutral competition host)
-    |
-    | IGameSessionAdapter / immutable MatchAssignment
-    v
-ServerSC2.ServerAppAdapter
-    |
-    | trusted typed SC2 launch contract
-    v
-ServerSC2.Core / ISc2SessionRuntime
-    |
-    +-- SC2 game process
-    +-- independently launched participant processes (e.g. SingularityBot)
-    +-- replay and authoritative result evidence
-    |
-    +-- approved FSM_COS RuntimeAssembly / MicroBundles where useful
-            |
-            v
-       Experiences (reusable versioned artifacts)
-```
+  -> IGameSessionAdapter / immutable MatchAssignment
+  -> ServerSC2.ServerAppAdapter
+  -> SimulationServer / ISc2SessionRuntime
+       + authoritative SC2 simulation host
+       + SingularityBot runner A (admitted build A)
+       + SingularityBot runner B (admitted build B)
+       + readiness, lifecycle, replay, result evidence
+  -> approved FSM_COS RuntimeAssembly / MicroBundles where useful
+  -> Experiences (reusable versioned artifacts)
+~~~
 
-FSM_COS composes approved MicroBundles. ServerSC2 is the application/game host that configures and supervises the SC2 session. FSM_Foundry remains the workflow executor. Do not conflate bundle composition, process provisioning, and workflow execution.
+FSM_COS composes approved MicroBundles. ServerSC2 configures and supervises the SC2 session. FSM_Foundry remains the workflow executor. Do not conflate bundle composition, process provisioning, and workflow execution.
 
 ## Ownership
 
 | Concern | Owner |
 |---|---|
 | Competition definitions, immutable match assignments, bot-build admission | ServerApp |
-| Generic `IGameSessionAdapter` contract and lifecycle validation | ServerApp.Core |
-| SC2 maps, game version, player slots, port pairs, launch policy | ServerSC2 |
-| SC2 process lifecycle and health/readiness | ServerSC2 |
+| Generic IGameSessionAdapter contract and lifecycle validation | ServerApp.Core |
+| SC2 maps, game version, player slots, port topology, launch policy | ServerSC2 |
+| SC2 simulation process lifecycle and health/readiness | ServerSC2 SimulationServer |
+| Independent bot runner processes and session attachment | ServerSC2 SimulationServer |
 | Bot strategy and bot-side SC2 protocol adapter | SingularityBot |
 | Reusable MicroBundle artifacts | Experiences |
 | Composition of approved bundles | FSM_COS |
@@ -46,15 +39,15 @@ ServerSC2 must not copy the generic bot-build registry or implement its own comp
 
 The SC2 server profile is trusted deployment configuration. It pins the adapter/game version, map identity, bounded port ranges, and maximum concurrency. It is not a client-supplied match payload. Executable paths, environment allowlists, process limits, and working directories must come from trusted host configuration and artifact resolution—not from participant metadata.
 
-Every session is built from an immutable admitted match assignment. A match must not become Ready until the SC2 game and all required participant processes have independently passed readiness checks.
+Every session is built from an immutable admitted match assignment. A match must not become Ready until the SC2 simulation and both required participant runners have independently passed protocol-level readiness checks.
 
 ## ServerApp adapter bridge
 
-`ServerSC2.ServerAppAdapter` implements the game-neutral `IGameSessionAdapter` contract from ServerApp.Core. It accepts only an admitted immutable assignment, verifies the game and pinned adapter version, maps the two participant build references into a typed launch request, and holds a bounded port lease for the session lifetime.
+ServerSC2.ServerAppAdapter implements the game-neutral IGameSessionAdapter contract from ServerApp.Core. It accepts only an admitted immutable assignment, verifies the game and pinned adapter version, maps the two participant build references into a typed launch request, and holds a bounded port lease for the session lifetime.
 
-The adapter depends on ServerApp.Core through a source project reference, not a published package. CI checks out ServerApp's `development` branch alongside this repository. The dependency is intentionally isolated in this adapter project; ServerSC2.Core remains independent of ServerApp.
+The adapter depends on ServerApp.Core through a source project reference, not a published package. CI checks out ServerApp's development branch alongside this repository. The dependency is intentionally isolated in this adapter project; ServerSC2.Core remains independent of ServerApp.
 
-`ISc2SessionRuntime` is the next boundary: it is injected and trusted. The bridge does not yet launch SC2 or participant processes. The runtime implementation must own executable resolution, fixed argument construction, process-tree supervision, readiness probes, replay/result capture, and bounded cleanup. Until that implementation exists, no actual match can be started by this repository.
+ISc2SessionRuntime is an injected trusted boundary. The bridge does not yet launch SC2 or participant processes. The concrete SimulationServer must own executable resolution, fixed argument construction, process-tree supervision, protocol readiness, replay/result capture, and bounded cleanup. Until that implementation exists, no actual match can be started by this repository.
 
 ## First implementation boundary
 
@@ -64,17 +57,17 @@ The core provides:
 - explicit lease disposal and reuse;
 - a ServerApp adapter bridge with typed launch requests and session-scoped port ownership.
 
-A lease is not an OS socket reservation. The process supervisor must still handle bind failures, verify the actual game process, and clean up all child processes and leases on every terminal path.
+A lease is not an OS socket reservation. The process supervisor must still handle bind failures, verify the actual game process, and clean up all child processes and leases on every terminal path. The current one-game-port/one-start-base lease has not yet been proven sufficient for two ladder clients.
 
 ## First vertical slice
 
 1. Resolve an approved ServerApp role and trusted SC2 profile.
 2. Validate a 1v1 immutable match assignment and exact bot-build artifacts.
-3. Allocate a unique SC2 game/start port pair.
-4. Start the SC2 game process using a fixed, host-owned argument builder.
-5. Attach two independent bot processes using their exact admitted builds and the SC2 ladder connection contract.
-6. Verify game and participant readiness.
-7. Observe terminal game state and preserve replay plus host-authored evidence.
+3. Allocate a topology-correct match-scoped port set.
+4. Start the authoritative SC2 simulation host using fixed, host-owned arguments.
+5. Start two independent bot processes using their exact admitted builds and the verified ladder connection contract.
+6. Verify simulation and both participant readiness.
+7. Observe terminal game state and preserve replay plus host-authored result evidence.
 8. Return a validated terminal snapshot to ServerApp.
 9. Persist match/session history and accept the result idempotently before rating projection.
 
@@ -87,3 +80,5 @@ Failure at any stage must prevent false readiness or a fabricated result. Cleanu
 - Client-selected executable paths, command lines, MicroBundle identities, or workflow handlers.
 - A database/ORM. Durable state should use the ServerApp binary journal/checkpoint approach or a compatible append-oriented host-owned format.
 - Public matchmaking, ranking, or tournament features before the local 1v1 evidence chain works.
+
+See SIMULATION_SERVER.md for the concrete two-runner lifecycle and SC2_RUNTIME_PROTOCOL.md for verified facts and unresolved topology.
