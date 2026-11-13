@@ -78,3 +78,14 @@ Do not generalize the allocator to arbitrary participant counts until the two-pl
 7. **CI proof:** fake-runtime contract checks cover the three-role topology, port lease, observer readiness, participant identity, fail-closed behavior, and partial-start cleanup. Live SC2 proof remains a separate integration gate.
 
 Until these gates close, the existing two-process path must not be described as an observer-host implementation. Do not silently fall back to competitor-hosted matches if observer startup fails; fail closed and report the missing capability.
+
+### Current reference-coordinator arithmetic
+
+Blizzard's reference `Coordinator::SetupPorts(num_agents, port_start)` allocates:
+- one shared port at base + 1;
+- one server PortSet at base + 2 and base + 3;
+- one client PortSet (two ports) for each additional client, starting at base + 4.
+
+For three SC2 clients, that produces a seven-port multiplayer block (base + 1 through base + 7), in addition to three distinct SC2 WebSocket listener ports. This is the reference coordinator's arithmetic; whether the observer participates in this exact three-client PortSet topology must still be verified live.
+
+The current SingularityBot `JoinGameLadder` sends only one client PortSet. If all three SC2 clients require the full PortSet collection, the bot-side ladder adapter must be extended to accept and submit both client PortSets. ServerSC2 must not assume that allocating a third listener alone makes the existing runner compatible.
