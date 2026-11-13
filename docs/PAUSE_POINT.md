@@ -35,6 +35,10 @@ The existing process supervisor remains the old two-client competitor-host imple
 
 ## Live protocol proof
 
+The first implementation increment now exists at `tools/sc2-probe/`: an explicitly opt-in three-process/API bootstrap using Blizzard's generated protobuf package. It preflights trusted paths and listener ports, launches three isolated SC2 processes, sends RequestPing to each API endpoint, records build metadata/logs in a versioned manifest, and performs bounded process cleanup. CI executes only unit tests; it never launches SC2.
+
+This is not yet the CreateGame/observer/player join proof. The PortSet payload, information isolation, authoritative result/replay path, and complete match lifecycle remain unimplemented. A bootstrap pass must not be called an observer-topology pass.
+
 The live proof is the next engineering milestone. [SC2_RUNTIME_PROTOCOL.md](SC2_RUNTIME_PROTOCOL.md) now defines an opt-in standalone probe acceptance contract. It must remain separate from normal CI and production runtime until it can:
 
 - use an exact pinned SC2 build and trusted map;
@@ -50,7 +54,7 @@ The probe is not implemented yet. Do not interpret the documented acceptance con
 
 ## Next implementation gates
 
-1. Implement the standalone opt-in protocol probe using a verified SC2API/protobuf client strategy; validate its argument/preflight and evidence-manifest logic with CI-safe tests.
+1. Extend the implemented three-process/API bootstrap with a protocol-driven CreateGame and observer/player join sequence, using live-verified PortSet semantics; keep CI-safe preflight/evidence tests separate from live SC2.
 2. Prove dedicated host CreateGame followed by observer join against the pinned SC2 build; confirm all-player observer semantics and join ordering.
 3. Derive and live-verify the complete PortSet footprint for observer plus N player clients.
 4. Confirm SC2 player/team setup and result semantics for 1v1, team matches, FFA, and multi-team formats.
