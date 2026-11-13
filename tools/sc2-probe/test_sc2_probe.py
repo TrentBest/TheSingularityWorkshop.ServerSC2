@@ -55,6 +55,109 @@ class FakeSocket:
         return self.response
 
 
+class QueuedFakeSocket:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.sent = []
+        self.timeout = None
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
+
+    def send_binary(self, payload):
+        self.sent.append(payload)
+
+    def recv(self):
+        return self.responses.pop(0)
+
+
+class ObserverSetupSequenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from s2clientprotocol import common_pb2, sc2api_pb2
+        cls.protocol = sc2api_pb2
+        cls.terran = common_pb2.Terran
+        cls.zerg = common_pb2.Zerg
+
+    def response(self, payload_name, player_id=None, error=None):
+        response = self.protocol.Response()
+        payload = getattr(response, payload_name)
+        if player_id is not None:
+            payload.player_id = player_id
+        if error is not None:
+            payload.error = error
+        else:
+            payload.SetInParent()
+        return response.SerializeToString()
+
+    def setup_inputs(self):
+        return {
+            "observer": QueuedFakeSocket([
+                self.response("create_game"),
+                self.response("join_game", player_id=0),
+            ]),
+            "player-1": QueuedFakeSocket([self.response("join_game", player_id=1)]),
+            "player-2": QueuedFakeSocket([self.response("join_game", player_id=2)]),
+        }
+
+    def port_sets(self):
+        return {
+            "player-1": {"server_ports": (5002, 5003), "client_ports": ((5004, 5005),)},
+            "player-2": {"server_ports": (5006, 5007), "client_ports": ((5008, 5009),)},
+        }
+
+    def test_candidate_sequence_records_explicit_inputs_and_orders_observer_first(self):
+        connections = self.setup_inputs()
+        manifest = {"protocol_exchanges": [], "gates": {}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            result = run_observer_setup_sequence(
+                connections, self.protocol, map_path="trusted/test.SC2Map",
+                observer_player_id=0,
+                player_races={"player-1": self.terran, "player-2": self.zerg},
+                player_port_sets=self.port_sets(), timeout=2.0,
+                manifest=manifest, manifest_path=path,
+            )
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        self.assertTrue(result["passed"])
+        self.assertEqual(
+            [(event["role"], event["request_type"]) for event in saved["protocol_exchanges"]],
+            [("observer", "create_game"), ("observer", "join_game"),
+             ("player-1", "join_game"), ("player-2", "join_game")],
+        )
+        self.assertEqual(len(connections["observer"].sent), 2)
+        self.assertEqual(len(connections["player-1"].sent), 1)
+        self.assertEqual(len(connections["player-2"].sent), 1)
+        self.assertEqual(saved["setup_sequence"]["inputs"]["observer_player_id"], 0)
+        self.assertEqual(saved["setup_sequence"]["inputs"]["player_port_sets"]["player-1"]["server_ports"], [5002, 5003])
+
+    def test_observer_join_failure_is_persisted_and_prevents_player_joins(self):
+        connections = self.setup_inputs()
+        failed_observer_join = self.protocol.Response()
+        failed_observer_join.join_game.error = self.protocol.ResponseJoinGame.FeatureUnsupported
+        connections["observer"] = QueuedFakeSocket([
+            self.response("create_game"),
+            failed_observer_join.SerializeToString(),
+        ])
+        manifest = {"protocol_exchanges": [], "gates": {}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            with self.assertRaises(RuntimeError):
+                run_observer_setup_sequence(
+                    connections, self.protocol, map_path="trusted/test.SC2Map",
+                    observer_player_id=0,
+                    player_races={"player-1": self.terran, "player-2": self.zerg},
+                    player_port_sets=self.port_sets(), timeout=2.0,
+                    manifest=manifest, manifest_path=path,
+                )
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        self.assertFalse(saved["setup_sequence"]["passed"])
+        self.assertEqual(len(saved["protocol_exchanges"]), 2)
+        self.assertEqual(saved["protocol_exchanges"][-1]["setup_gate"]["payload_error_name"], "FeatureUnsupported")
+        self.assertEqual(connections["player-1"].sent, [])
+        self.assertEqual(connections["player-2"].sent, [])
+
+
 class ProtocolTransportTests(unittest.TestCase):
     def test_exchange_records_types_timeout_timestamps_and_raw_protobuf(self):
         socket = FakeSocket(b'{"type":"ping"}')
