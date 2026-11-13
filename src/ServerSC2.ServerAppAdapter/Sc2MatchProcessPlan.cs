@@ -40,17 +40,26 @@ public sealed record Sc2MatchProcessPlan(
         if (request.Participants.Any(p => string.IsNullOrWhiteSpace(p.ParticipantId) ||
             string.IsNullOrWhiteSpace(p.TeamId) || p.BotBuild is null ||
             string.IsNullOrWhiteSpace(p.BotBuild.BuildId) ||
-            string.IsNullOrWhiteSpace(p.BotBuild.ContentSha256) ||
+            p.BotBuild.ContentSha256 is null ||
+            p.BotBuild.ContentSha256.Length != 64 ||
+            !p.BotBuild.ContentSha256.All(Uri.IsHexDigit) ||
             p.GamePort is < 1 or > 65535))
-            throw new InvalidOperationException("Every participant requires an identity, team, immutable build, and valid listener port.");
+            throw new InvalidOperationException("Every participant requires an identity, team, SHA-256 build reference, and valid listener port.");
         if (request.Participants.Select(p => p.ParticipantId).Distinct(StringComparer.Ordinal).Count() != request.Participants.Count)
             throw new InvalidOperationException("SC2 participant IDs must be unique.");
         if (request.Participants.Select(p => p.GamePort).Distinct().Count() != request.Participants.Count)
             throw new InvalidOperationException("Every participant SC2 client requires a distinct listener port.");
         if (request.Participants.Any(p => p.IsGameHost))
             throw new InvalidOperationException("Participant clients cannot own CreateGame authority in observer-hosted topology.");
-        if (request.StartPort is < 1 or > 65535)
-            throw new InvalidOperationException("The match-level StartPort is invalid.");
+
+        // One observer plus N player clients each consume two ports, with one shared port.
+        var multiplayerPortCount = (2 * (request.Participants.Count + 1)) + 1;
+        if (request.StartPort < 1 || request.StartPort > 65535 - multiplayerPortCount + 1)
+            throw new InvalidOperationException("The match-level StartPort cannot reserve the observer and participant multiplayer port block.");
+
+        var multiplayerPortLast = request.StartPort + multiplayerPortCount - 1;
+        if (request.Participants.Any(p => p.GamePort >= request.StartPort && p.GamePort <= multiplayerPortLast))
+            throw new InvalidOperationException("Participant listener ports cannot overlap the match multiplayer port block.");
 
         var clients = new List<Sc2ClientProcessPlan>(request.Participants.Count + 1)
         {
