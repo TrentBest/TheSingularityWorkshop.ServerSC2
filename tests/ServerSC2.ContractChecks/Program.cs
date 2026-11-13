@@ -114,10 +114,6 @@ static void Assert(bool condition, string message)
 }
 
 
-static CompetitionDefinition TestCompetition() => new(
-    "sc2-ladder", Sc2GameSessionAdapter.StarCraftIIGameId, "ladder-rules", "1",
-    [new CompetitionMatchFormat("1v1", [1, 1])]);
-
 static MatchAssignment TestAssignment(string gameId = Sc2GameSessionAdapter.StarCraftIIGameId) => new(
     "match-001", "sc2-ladder", gameId, "ladder-rules", "1", "1v1", "0.1.0",
     DateTimeOffset.UtcNow,
