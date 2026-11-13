@@ -63,12 +63,19 @@ class ProtocolTransportTests(unittest.TestCase):
         self.assertTrue(event["sent_utc"])
         self.assertTrue(event["received_utc"])
 
-    def test_exchange_rejects_unexpected_response_type(self):
+    def test_exchange_preserves_unexpected_response_type_for_audit(self):
         socket = FakeSocket(b'{"type":"create_game"}')
-        with self.assertRaisesRegex(RuntimeError, "expected 'ping'"):
-            exchange_protocol(
-                socket, FakeRequest(), FakeResponse(), "ping", 1.0
-            )
+        response, event = exchange_protocol(
+            socket, FakeRequest(), FakeResponse(), "ping", 1.0
+        )
+        self.assertEqual(response.payload["type"], "create_game")
+        self.assertEqual(event["response_type"], "create_game")
+        self.assertEqual(event["expected_response_type"], "ping")
+        self.assertFalse(event["response_type_matches"])
+        self.assertEqual(
+            base64.b64decode(event["response_protobuf_base64"]),
+            b'{"type":"create_game"}',
+        )
 
 
 class ProbePreflightTests(unittest.TestCase):
