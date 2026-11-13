@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [master, development]
+  pull_request:
+    branches: [master, development]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build core
+        run: dotnet build src/ServerSC2.Core/ServerSC2.Core.csproj --configuration Release
+      - name: Run contract checks
+        run: dotnet run --project tests/ServerSC2.ContractChecks/ServerSC2.ContractChecks.csproj --configuration Release
