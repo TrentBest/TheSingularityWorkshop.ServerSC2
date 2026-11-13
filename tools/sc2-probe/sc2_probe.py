@@ -107,11 +107,8 @@ def exchange_protocol(
         "request_protobuf_base64": base64.b64encode(request_bytes).decode("ascii"),
         "response_protobuf_base64": base64.b64encode(response_bytes).decode("ascii"),
     }
-    if response_type != expected_response_type:
-        raise RuntimeError(
-            f"SC2API returned response '{response_type}' for request '{request_type}'; "
-            f"expected '{expected_response_type}'"
-        )
+    # Return even mismatched exchanges so the caller can persist the raw
+    # request/response evidence before failing the protocol gate.
     return response, event
 
 
@@ -258,6 +255,13 @@ def run_probe(config: ProbeConfig) -> int:
                         "role": role,
                         **exchange,
                     })
+                    if not exchange["response_type_matches"]:
+                        raise RuntimeError(
+                            f"{role} SC2API returned response "
+                            f"'{exchange['response_type']}' for request "
+                            f"'{exchange['request_type']}'; expected "
+                            f"'{exchange['expected_response_type']}'"
+                        )
                     break
                 except Exception as exc:  # bounded retry while SC2 initializes its listener
                     last_error = str(exc)
