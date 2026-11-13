@@ -95,8 +95,12 @@ def exchange_protocol(
     received_utc = utc_now()
     response.ParseFromString(response_bytes)
     response_type = response.WhichOneof("response")
+    request_id = request.id if request.HasField("id") else None
+    response_id = response.id if response.HasField("id") else None
     event = {
         "transport": "websocket",
+        "request_id": request_id,
+        "response_id": response_id,
         "request_type": request_type,
         "response_type": response_type,
         "expected_response_type": expected_response_type,
