@@ -117,6 +117,47 @@ def exchange_protocol(
 
 
 
+
+def evaluate_setup_response(response: Any, expected_response_type: str) -> dict[str, Any]:
+    """Fail closed on setup response errors and require a structured JoinGame acknowledgement."""
+    response_type = response.WhichOneof("response")
+    errors = list(getattr(response, "error", ()))
+    payload = getattr(response, response_type) if response_type else None
+    payload_error = None
+    payload_error_name = None
+    if payload is not None:
+        field = payload.DESCRIPTOR.fields_by_name.get("error")
+        if field is not None and payload.HasField("error"):
+            payload_error = int(getattr(payload, "error"))
+            enum_value = field.enum_type.values_by_number.get(payload_error)
+            payload_error_name = enum_value.name if enum_value else None
+
+    join_player_id = None
+    join_acknowledged = response_type == "join_game"
+    if join_acknowledged:
+        join_player_id = (
+            int(payload.player_id) if payload.HasField("player_id") else None
+        )
+
+    passed = (
+        response_type == expected_response_type
+        and not errors
+        and payload_error is None
+        and (not join_acknowledged or join_player_id is not None)
+    )
+    status = int(response.status) if response.HasField("status") else None
+    return {
+        "passed": passed,
+        "response_type": response_type,
+        "expected_response_type": expected_response_type,
+        "envelope_errors": errors,
+        "payload_error": payload_error,
+        "payload_error_name": payload_error_name,
+        "join_player_id": join_player_id,
+        "status": status,
+    }
+
+
 def build_create_game_request(
     sc2api_pb2: Any,
     map_path: str,
