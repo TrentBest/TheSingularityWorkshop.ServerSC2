@@ -1,31 +1,44 @@
 namespace ServerSC2.Core;
 
-/// <summary>A process-local lease for one distinct SC2 game/start port pair.</summary>
+/// <summary>
+/// A process-local lease for two SC2 listener ports and one shared multiplayer port block.
+/// StartPort is a match-level base; ports StartPort+1 through StartPort+5 belong to this match.
+/// </summary>
 public sealed class Sc2PortLease : IDisposable
 {
     private Action<Guid>? _release;
 
-    internal Sc2PortLease(Guid leaseId, int gamePort, int startPort, Action<Guid> release)
+    internal Sc2PortLease(
+        Guid leaseId,
+        int hostGamePort,
+        int joinerGamePort,
+        int startPort,
+        Action<Guid> release)
     {
         LeaseId = leaseId;
-        GamePort = gamePort;
+        HostGamePort = hostGamePort;
+        JoinerGamePort = joinerGamePort;
         StartPort = startPort;
         _release = release;
     }
 
     public Guid LeaseId { get; }
-    public int GamePort { get; }
+    public int HostGamePort { get; }
+    public int JoinerGamePort { get; }
     public int StartPort { get; }
 
     public void Dispose() => Interlocked.Exchange(ref _release, null)?.Invoke(LeaseId);
 }
 
 /// <summary>
-/// Allocates bounded, non-overlapping game/start port pairs for concurrent sessions within
-/// one ServerSC2 host process. The OS-level process supervisor must still handle bind failures.
+/// Atomically allocates two distinct listener ports and a shared five-port multiplayer block
+/// for each match. This protects concurrent sessions within this host process; it is not an
+/// OS-level socket reservation.
 /// </summary>
 public sealed class Sc2PortLeasePool
 {
+    private const int MultiplayerPortStride = 6;
+
     private readonly object _gate = new();
     private readonly Sc2ServerProfile _profile;
     private readonly Dictionary<Guid, int> _leases = new();
@@ -61,12 +74,12 @@ public sealed class Sc2PortLeasePool
                     continue;
 
                 var leaseId = Guid.NewGuid();
+                var hostGamePort = checked(_profile.GamePortFirst + slot * 2);
+                var joinerGamePort = checked(hostGamePort + 1);
+                var startPort = checked(_profile.StartPortFirst + slot * MultiplayerPortStride);
+
                 _leases.Add(leaseId, slot);
-                lease = new Sc2PortLease(
-                    leaseId,
-                    checked(_profile.GamePortFirst + slot),
-                    checked(_profile.StartPortFirst + slot),
-                    Release);
+                lease = new Sc2PortLease(leaseId, hostGamePort, joinerGamePort, startPort, Release);
                 return true;
             }
 
