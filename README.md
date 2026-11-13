@@ -30,7 +30,7 @@ See [the architecture](docs/ARCHITECTURE.md), [SimulationServer orchestration](d
 
 ## Status
 
-Next: implement the standalone, explicitly opt-in SC2 protocol probe described in [SC2_RUNTIME_PROTOCOL.md](docs/SC2_RUNTIME_PROTOCOL.md). It must prove CreateGame, observer join, two player joins, observer-authoritative results/replay, information isolation, and bounded cleanup against a pinned SC2 build before the production supervisor topology changes. A submission queue and cup progression remain later ServerApp competition-policy work; they are not prerequisites for proving the local match protocol.
+Next: extend the standalone, explicitly opt-in SC2 protocol probe described in [SC2_RUNTIME_PROTOCOL.md](docs/SC2_RUNTIME_PROTOCOL.md). The first bootstrap increment now preflights trusted inputs, launches three isolated SC2 processes, pings each protobuf API endpoint, records build metadata, and performs bounded cleanup; it does not yet create or join a game. It must prove CreateGame, observer join, two player joins, observer-authoritative results/replay, information isolation, and bounded cleanup against a pinned SC2 build before the production supervisor topology changes. A submission queue and cup progression remain later ServerApp competition-policy work; they are not prerequisites for proving the local match protocol.
 
 ---
 
