@@ -17,7 +17,8 @@ var checks = new (string Name, Action Run)[]
     ("adapter rejects wrong game before allocating ports", AdapterRejectsWrongGame),
     ("adapter releases a lease when runtime startup fails", AdapterReleasesOnStartupFailure),
     ("observer process plan isolates CreateGame authority", ObserverPlanIsolatesCreateGame),
-    ("observer process plan scales to arbitrary participant counts", ObserverPlanScales)
+    ("observer process plan scales to arbitrary participant counts", ObserverPlanScales),
+    ("observer process plan rejects invalid build and port boundaries", ObserverPlanRejectsInvalidBoundaries)
 };
 
 var failures = new List<string>();
@@ -205,6 +206,40 @@ static void ObserverPlanScales()
         throw new InvalidOperationException("Expected participant CreateGame authority to be rejected.");
     }
     catch (InvalidOperationException exception) when (exception.Message.Contains("cannot own CreateGame", StringComparison.Ordinal)) { }
+}
+
+static void ObserverPlanRejectsInvalidBoundaries()
+{
+    var valid = ObserverLaunchRequest(2);
+    var invalidHash = valid with
+    {
+        Participants = Array.AsReadOnly(valid.Participants.Select((participant, index) =>
+            index == 0 ? participant with
+            {
+                BotBuild = participant.BotBuild with { ContentSha256 = "not-a-sha256" }
+            } : participant).ToArray())
+    };
+    AssertThrows(() => Sc2MatchProcessPlan.Create(invalidHash), "SHA-256");
+
+    var overlappingListener = valid with
+    {
+        Participants = Array.AsReadOnly(valid.Participants.Select((participant, index) =>
+            index == 0 ? participant with { GamePort = 6001 } : participant).ToArray())
+    };
+    AssertThrows(() => Sc2MatchProcessPlan.Create(overlappingListener), "cannot overlap");
+
+    var overflowingBlock = valid with { StartPort = 65530 };
+    AssertThrows(() => Sc2MatchProcessPlan.Create(overflowingBlock), "cannot reserve");
+}
+
+static void AssertThrows(Action action, string expectedMessage)
+{
+    try
+    {
+        action();
+        throw new InvalidOperationException($"Expected rejection containing '{expectedMessage}'.");
+    }
+    catch (InvalidOperationException exception) when (exception.Message.Contains(expectedMessage, StringComparison.Ordinal)) { }
 }
 
 static void Assert(bool condition, string message)
