@@ -124,7 +124,7 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
                 throw new InvalidOperationException("The SC2 session ID is already active.");
         }
 
-        if (!_ports.TryAcquire(out var lease) || lease is null)
+        if (!_ports.TryAcquire(assignment.Participants.Count, out var lease) || lease is null)
             throw new InvalidOperationException("The SC2 host has reached its configured concurrent-match capacity.");
 
         var active = new ActiveSession(assignment.MatchId, request.SessionId, lease);
@@ -159,7 +159,7 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
                         p.ParticipantId,
                         p.TeamId,
                         p.BotBuild,
-                        index == 0 ? lease.HostGamePort : lease.JoinerGamePort,
+                        lease.ParticipantGamePorts[index],
                         index == 0)).ToArray()));
 
             var observed = await _runtime.StartAsync(launch, cancellationToken).ConfigureAwait(false);
