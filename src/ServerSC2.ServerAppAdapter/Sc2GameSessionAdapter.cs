@@ -135,6 +135,7 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
             }
         }
 
+        await active.Gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
             var launch = new Sc2SessionLaunchRequest(
@@ -164,6 +165,10 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
         {
             await StopAndReleaseAsync(request.SessionId, active).ConfigureAwait(false);
             throw;
+        }
+        finally
+        {
+            active.Gate.Release();
         }
     }
 
@@ -219,22 +224,44 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
         }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         ActiveSession[] active;
         lock (_sessionsGate)
         {
             if (_disposed)
-                return ValueTask.CompletedTask;
+                return;
             _disposed = true;
             active = _sessions.Values.ToArray();
         }
 
+        List<Exception>? failures = null;
         foreach (var session in active)
-            session.Lease.Dispose();
+        {
+            await session.Gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                try { await _runtime.StopAsync(FindSessionId(session), CancellationToken.None).ConfigureAwait(false); }
+                catch (Exception exception) { (failures ??= []).Add(exception); }
+                finally { session.Lease.Dispose(); }
+            }
+            finally
+            {
+                session.Gate.Release();
+            }
+        }
+
         lock (_sessionsGate)
             _sessions.Clear();
-        return ValueTask.CompletedTask;
+
+        if (failures is not null)
+            throw new AggregateException("One or more SC2 sessions failed to stop during adapter disposal.", failures);
+    }
+
+    private string FindSessionId(ActiveSession target)
+    {
+        lock (_sessionsGate)
+            return _sessions.First(pair => ReferenceEquals(pair.Value, target)).Key;
     }
 
     private GameSessionSnapshot ValidateAndTranslate(
