@@ -103,6 +103,16 @@ Install the pinned developer dependencies with `python -m pip install -r tools/s
 python tools/sc2-probe/sc2_probe.py --execute --executable <SC2.exe> --install-dir <SC2-install-dir> --map <TrustedMap.SC2Map> --expected-version <pinned-version> --output-dir <probe-output> --base-port 5000
 ```
 
+## Descriptor-backed setup request builders
+
+The isolated probe now has pure builders for the two setup request shapes, using the pinned generated `s2clientprotocol.sc2api_pb2` module:
+
+- CreateGame selects `local_map.map_path`, creates exactly the explicitly requested number of `Participant` setup entries, and optionally sets the random seed and realtime flag.
+- JoinGame selects exactly one participation oneof: `race` for a player or `observed_player_id` for an observer. It enables the raw interface and accepts optional `server_ports` / repeated `client_ports` only as explicit caller-supplied pairs.
+- Port pairs are checked for valid TCP port ranges and overlap. The builder does not allocate ports, extrapolate Blizzard's coordinator layout, or populate deprecated `shared_port`.
+
+Descriptor-backed tests assert the actual protobuf oneof names, field values, and repeated PortSet serialization for the pinned package. These are request-construction tests only: they do not establish that the SC2 server accepts the observer join, that the candidate port layout works, or that the topology is live. The builders are not yet wired into `run_probe`; the bootstrap command remains ping-only until the exact request sequence and live proof gates are implemented.
+
 ## Protocol transport and exchange evidence
 
 The probe now routes its bootstrap ping through a small transport boundary that can be exercised with fake sockets in CI. For each completed exchange it records the request and response oneof names, expected response type, send/receive UTC timestamps, bounded socket timeout, and the exact serialized request/response protobuf bytes encoded as Base64 in the evidence manifest. A mismatched response oneof is retained in the manifest with its raw request/response bytes and marked as a failed exchange before the probe aborts; failed exchanges are not silently discarded.
