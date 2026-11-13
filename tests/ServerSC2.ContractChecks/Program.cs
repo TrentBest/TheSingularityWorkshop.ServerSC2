@@ -133,7 +133,7 @@ static void AdapterMapsAssignment()
 {
     var pool = new Sc2PortLeasePool(ValidProfile());
     var runtime = new FakeSc2Runtime();
-    using var adapter = CreateAdapter(pool, runtime);
+    var adapter = CreateAdapter(pool, runtime);
     var result = adapter.StartAsync(new GameSessionStartRequest(TestAssignment(), "session-001"))
         .AsTask().GetAwaiter().GetResult();
     Assert(result.State == GameSessionState.Ready, "Adapter did not return Ready.");
@@ -143,6 +143,7 @@ static void AdapterMapsAssignment()
     Assert(pool.ActiveLeaseCount == 1, "Port lease was not retained for the active session.");
     adapter.StopAsync("session-001").AsTask().GetAwaiter().GetResult();
     Assert(pool.ActiveLeaseCount == 0, "Port lease was not released after stop.");
+    adapter.DisposeAsync().AsTask().GetAwaiter().GetResult();
 }
 
 static void AdapterRejectsWrongGame()
@@ -158,6 +159,7 @@ static void AdapterRejectsWrongGame()
     }
     catch (InvalidOperationException exception) when (exception.Message.Contains("different game", StringComparison.Ordinal)) { }
     Assert(pool.ActiveLeaseCount == 0, "Wrong-game assignment consumed a port lease.");
+    adapter.DisposeAsync().AsTask().GetAwaiter().GetResult();
 }
 
 static void AdapterReleasesOnStartupFailure()
@@ -173,6 +175,7 @@ static void AdapterReleasesOnStartupFailure()
     }
     catch (InvalidOperationException exception) when (exception.Message == "synthetic startup failure") { }
     Assert(pool.ActiveLeaseCount == 0, "Startup failure leaked the port lease.");
+    adapter.DisposeAsync().AsTask().GetAwaiter().GetResult();
 }
 
 sealed class FakeSc2Runtime : ISc2SessionRuntime
