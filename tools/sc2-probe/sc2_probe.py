@@ -111,6 +111,34 @@ def ping_process(port: int, timeout: float, log_path: Path) -> dict[str, Any]:
         connection.close()
 
 
+def evaluate_version_gate(protocol: dict[str, dict[str, Any]], expected_version: str) -> dict[str, Any]:
+    fields = ("game_version", "data_version", "data_build", "base_build")
+    fingerprints = {
+        tuple(str(entry.get(field, "")) for field in fields)
+        for entry in protocol.values()
+    }
+    observed = [
+        {field: value for field, value in zip(fields, fingerprint)}
+        for fingerprint in sorted(fingerprints)
+    ]
+    all_match = bool(protocol) and all(
+        expected_version in str(entry.get("game_version", ""))
+        for entry in protocol.values()
+    )
+    consistent = len(fingerprints) == 1 and all(
+        all(str(entry.get(field, "")) for field in fields)
+        for entry in protocol.values()
+    )
+    return {
+        "passed": all_match and consistent,
+        "expected_game_version": expected_version,
+        "process_count": len(protocol),
+        "all_processes_match_expected_game_version": all_match,
+        "all_processes_report_same_complete_build": consistent,
+        "observed_builds": observed,
+    }
+
+
 def run_probe(config: ProbeConfig) -> int:
     config.output_dir.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, Any] = {
@@ -194,15 +222,14 @@ def run_probe(config: ProbeConfig) -> int:
             manifest["protocol"][role] = ping_result
             manifest["processes"][ordinal]["ping_ready_utc"] = utc_now()
 
-        versions = {entry["game_version"] for entry in manifest["protocol"].values()}
         manifest["gates"]["api_ping"] = {"passed": True, "process_count": len(processes)}
-        manifest["gates"]["version_match"] = {
-            "passed": all(config.expected_version in version for version in versions),
-            "expected": config.expected_version,
-            "observed": sorted(versions),
-        }
+        manifest["gates"]["version_match"] = evaluate_version_gate(
+            manifest["protocol"], config.expected_version
+        )
         if not manifest["gates"]["version_match"]["passed"]:
-            raise RuntimeError("One or more SC2 processes do not match the expected game version")
+            raise RuntimeError(
+                "SC2 processes do not all match the expected game version and identical complete build metadata"
+            )
 
         # This bootstrap milestone intentionally stops before CreateGame/join. Those
         # messages and the complete PortSet payload remain live-proof gates, not guesses.
