@@ -24,7 +24,9 @@ class ProbePreflightTests(unittest.TestCase):
                 shutdown_timeout=10,
             )
             errors = validate_config(config)
-            self.assertEqual(3, len(errors))
+            self.assertTrue(any("SC2 executable" in error for error in errors))
+            self.assertTrue(any("installation directory" in error for error in errors))
+            self.assertTrue(any("Trusted map" in error for error in errors))
 
     def test_invalid_port_and_timeouts_fail_preflight(self):
         with tempfile.TemporaryDirectory() as directory:
