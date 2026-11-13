@@ -1,35 +1,63 @@
 # SC2 Runtime Protocol Notes
 
-This document records protocol facts that constrain the first real process supervisor. It intentionally separates verified SC2API behavior from unresolved ladder-host integration details.
+This document separates verified SC2API behavior, verified SingularityBot implementation details, and unresolved ladder-host integration details.
 
 ## Verified SC2API facts
 
-- The SC2API is a protobuf protocol over WebSockets. The game API endpoint is `/sc2api`.
-- The WebSocket listener address and port are configured on the SC2 process command line with `-listen` and `-port`.
-- Blizzard's protocol documentation describes multiplayer setup as launching two game instances on separate ports, designating a host, sending `Request.create_game`, and sending `Request.join_game` from both clients.
-- The SC2API protocol exposes game lifecycle status values including `launched`, `init_game`, `in_game`, `ended`, and `quit`.
+- The SC2API is a protobuf protocol over WebSockets. The game API endpoint is /sc2api.
+- The WebSocket listener address and port are configured on the SC2 process command line with -listen and -port.
+- Blizzard's protocol documentation describes multiplayer setup as launching two game instances on separate ports, designating a host, sending Request.create_game, and sending Request.join_game from both clients.
+- The SC2API protocol exposes game lifecycle status values including launched, init_game, in_game, ended, and quit.
 
 References:
-- [Blizzard s2client-proto protocol documentation](https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.md)
-- [Blizzard SC2API protocol definitions](https://github.com/Blizzard/s2client-proto/blob/master/s2clientprotocol/sc2api.proto)
-- [Blizzard SC2 Coordinator reference](https://blizzard.github.io/s2client-api/classsc2_1_1_coordinator.html)
+- https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.md
+- https://github.com/Blizzard/s2client-proto/blob/master/s2clientprotocol/sc2api.proto
+- https://blizzard.github.io/s2client-api/classsc2_1_1_coordinator.html
 
-## Existing SingularityBot integration facts
+## Verified SingularityBot source contract
 
-The currently documented bot-side ladder entry point accepts `GamePort`, `StartPort`, and `OpponentId`, and connects as a client to an already hosted SC2 session. That bot-side contract is not itself a complete two-participant game host. ServerSC2 must launch and supervise the authoritative game-side runtime and both independently admitted bot builds.
+Repository: https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot, branch development.
 
-## Decisions intentionally not guessed
+- src/SingularityBot/Program.cs treats the run as local only when no connection arguments remain. Otherwise it calls GameConnection.RunLadder.
+- src/SingularityBot.Runner/Program.cs forwards ladder arguments to the bot program. The runner is therefore the host-facing executable entry point.
+- src/SC2API.CSharp/GameConnection.cs implements RunLadder as: connect to gamePort, call JoinGameLadder(race, startPort), then enter the observation/action loop.
+- JoinGameLadder derives SC2 multiplayer port sets from the supplied start port: shared port = start + 1; server game/base ports = start + 2/+3; client game/base ports = start + 4/+5. It requests raw and score interface data.
+- StartSC2Instance launches the SC2 executable with -listen, -port, and -displayMode 0. That is used by the local-game path, not by RunLadder.
+- CreateGame creates a local game with one participant and one built-in computer opponent. It is not a two-bot match creator.
+- The ladder CLI parser accepts --GamePort / -g, --StartPort / -o, and --OpponentId. Its parser advances in name/value pairs; the server must emit only supported, correctly paired arguments.
 
-Before implementing a concrete supervisor, verify against the current SingularityBot source and its exact SC2 client library:
+Source links:
+- https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot/blob/development/src/SC2API.CSharp/GameConnection.cs
+- https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot/blob/development/src/SC2API.CSharp/CLArgs.cs
+- https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot/blob/development/src/SingularityBot/Program.cs
+- https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot/blob/development/src/SingularityBot.Runner/Program.cs
 
-1. Whether the intended local 1v1 topology uses one shared SC2API process or two SC2API game instances, and which process is authoritative for `CreateGame`.
-2. How the current bot's `StartPort` maps to the SC2API server/client port sets and how many ports must be reserved per match.
-3. Whether both bot processes connect to the same WebSocket endpoint or to distinct game instances/endpoints.
-4. How the bot client reports a terminal result and how replay saving is requested and confirmed.
-5. Which exact game/map versions and local map identifiers are supported by the checked-in bot runtime.
+## Bot runner vs simulation host
 
-The official SC2API documentation describes multi-instance multiplayer setup, while the bot's ladder-manager arguments describe a bot joining an existing host. Those are related but not interchangeable contracts. Do not launch a guessed topology, treat an open TCP port as readiness, or infer a winner from process exit codes.
+The bot's ladder path is a participant client. It does not launch the authoritative simulation, create the match, or supervise its opponent. ServerSC2 must host the simulation and launch two independent runner processes from the two immutable admitted build references. Do not call RunSinglePlayer twice: that would create two separate bot-vs-computer sessions, not a 1v1 match.
+
+## Unresolved topology gate
+
+The code proves the arithmetic of the StartPort bundle but does not, by itself, prove how the external ladder manager allocates and shares these ports between two bot clients. Blizzard's documented multiplayer setup also describes two SC2 instances in its client-managed workflow. Before launching real matches, verify:
+
+1. whether the hosted competition topology is one shared SC2 process or two coordinated SC2 instances;
+2. which endpoint each runner connects to;
+3. whether both runners receive the same GamePort, and whether they receive the same or distinct StartPort values;
+4. which process owns CreateGame / host designation in this topology;
+5. how the server observes authoritative player results and requests/saves replay artifacts.
+
+Do not infer these details from parameter names. The current ServerSC2 port lease reserves one game port and one start-port base per match; it is not yet proven sufficient for the two-runner allocation.
+
+## Readiness and completion rules
+
+- An open TCP port or live process is not protocol readiness.
+- Each runner must complete its SC2 protocol join and be associated with the expected participant identity.
+- A match is Ready only when the authoritative simulation and both admitted runners are ready.
+- A runner exit code is not a win/loss result.
+- A match is Completed only after SC2 reports terminal state and the host validates the player-result mapping.
+- Replay and result artifacts must be bound to match/session identity, game/map version, and both bot build hashes.
+- Ambiguous topology, missing result, mismatched identity, or partial startup fails closed.
 
 ## Implementation gate
 
-The current `ISc2SessionRuntime` interface is the correct seam for the eventual process supervisor. It must not report `Ready` until the game process and both bot clients have passed protocol-level readiness. It must not report `Completed` until an authoritative game result is captured and validated. Replay and result artifacts must be bound to the immutable match/session identity.
+The ISc2SessionRuntime seam is the right place for the concrete SimulationServer. Implement its process supervisor only after the topology questions above are resolved. The runtime must own fixed host launch arguments, both runner process trees, protocol-level readiness, authoritative result/replay capture, and bounded cleanup.
