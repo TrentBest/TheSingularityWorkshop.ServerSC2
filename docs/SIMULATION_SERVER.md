@@ -1,49 +1,48 @@
-# SimulationServer: hosted 1v1 match orchestration
+# SimulationServer: observer-hosted 1v1 match orchestration
 
 ## Intent
 
-ServerSC2 should behave as a SimulationServer: it creates and owns one authoritative StarCraft II match, then launches and connects two independently admitted bot runners to that match. It is not two local single-player sessions and it is not two copies of SingularityBot's local-game path.
+ServerSC2 should behave as a SimulationServer: it owns one authoritative StarCraft II match, but neither competitor owns game creation. The target topology uses one dedicated SC2 simulation-host process that joins as an observer, two player SC2 processes, and two independently admitted bot runners.
 
-~~~text
+See [OBSERVER_HOST_DESIGN.md](OBSERVER_HOST_DESIGN.md) for the candidate startup sequence, fairness constraints, port-allocation questions, and proof gates.
+
+```text
 ServerApp: immutable MatchAssignment (participant A + participant B)
   -> ServerSC2.ServerAppAdapter
   -> SimulationServer / ISc2SessionRuntime
        1. validate assignment and trusted SC2 profile
-       2. allocate match-scoped ports and artifact directory
-       3. launch two SC2 instances with distinct WebSocket listener ports
-       4. designate/create the multiplayer game on the host instance
-       5. launch SingularityBot runner A from admitted build A
-       6. launch SingularityBot runner B from admitted build B
-       7. connect each runner to its assigned SC2 listener and complete the multiplayer join
-       8. observe authoritative game lifecycle and result
-       9. capture replay, logs, and result evidence
-       10. stop both SC2 and both runner process trees; release all resources
-~~~
+       2. resolve and hash-verify both immutable runner artifacts
+       3. allocate observer + two player listener ports and complete multiplayer PortSet footprint
+       4. launch dedicated SC2 simulation host
+       5. create trusted multiplayer map and join simulation host as observer
+       6. launch two player SC2 instances
+       7. launch runner A and runner B, each attached only to its own player listener
+       8. verify observer readiness and both distinct player join identities
+       9. observe authoritative lifecycle, results, and replay
+      10. stop all five child processes and release the match lease
+```
 
-The two SC2 processes have separate listener ports; one is the multiplayer host and one is the joining client. Each runner connects to its assigned SC2 listener. The adapter assigns the first immutable assignment participant as host and the second as joiner; this is host policy, not a bot-selected role. The two runner processes are independent: separate process identities, build hashes, working directories, bounded resource budgets, stdout/stderr streams, exit observations, and participant identities. Neither runner receives authority to launch or reconfigure the SC2 host.
+This is the target flow. The exact order and PortSet semantics must be established by live integration proof. The current source runtime still launches two SC2 processes and two runners with one competitor designated as CreateGame host; that implementation is not yet the observer-host topology.
 
-## Reuse the existing SingularityBot client
-
-The current bot source already provides the player-side entry point:
-
-- SingularityBot.Program.Run distinguishes local mode (no connection arguments) from ladder mode.
-- A ladder run calls GameConnection.RunLadder.
-- RunLadder connects to the supplied game port, then calls JoinGameLadder with the supplied start port and opponent ID.
-- StartSC2Instance and CreateGame belong to the local single-player path. The SimulationServer must not invoke that path for either competition participant.
-
-The host should launch the approved runner artifact with the documented ladder arguments, not embed strategy code or create a second protocol client. The adapter supplies a distinct listener GamePort for each participant and one shared StartPort base for the match. The allocator reserves both listeners and the five derived multiplayer ports as one process-local lease. The host-designated runner receives `--CreateGame --Map <trusted-map-path>`; it connects to its SC2 listener, creates the multiplayer game with two participant slots, then performs the normal ladder join on that same connection. The second runner only joins. Both runners receive distinct GamePort values and the same match-level StartPort base. `Sc2ProcessSessionRuntime` now launches the two SC2 processes and two runner processes, and waits for both `SC2_JOINED` player-ID markers before returning Ready. Live SC2 verification remains outstanding; see SC2_RUNTIME_PROTOCOL.md.
-
-## Authority and evidence
+## Authority and isolation
 
 - ServerApp is authoritative for admitted participant/build identities and match assignment.
 - SimulationServer is authoritative for process ownership, match startup, lifecycle observation, and host-collected artifacts.
 - SC2 is authoritative for game state and terminal player result.
+- The observer process has no competitor identity and must not submit player actions.
+- Each runner connects only to its own player SC2 listener. Observer observations, global vision, replay state, and observer-derived hidden information must never be forwarded to a bot.
 - A runner exit code is diagnostic evidence, never a winner declaration.
-- A match is Ready only after the SC2 simulation and both runners are connected and protocol-ready.
-- A match is Completed only after the SC2 terminal state and participant result mapping are captured and validated.
+- A match is Ready only after the observer and both player runners are connected and protocol-ready.
+- A match is Completed only after terminal SC2 result evidence is captured and correlated to both acknowledged player IDs and immutable participant assignments.
 - Replay evidence is associated with immutable match ID, session ID, game version, map ID, and both build hashes.
 
-No inferred winner, missing result, incomplete participant set, or ambiguous lifecycle is converted into a successful match. Fail closed and retain diagnostics.
+No inferred winner, missing result, incomplete participant set, or ambiguous lifecycle is converted into a successful match. Fail closed and retain diagnostics. Do not fall back to competitor-hosted mode if observer startup fails.
+
+## Fairness policy
+
+Both players must use the same pinned game version, map, game settings, and equivalent resource budgets. Player slot and starting-location assignment must be randomized or alternated under trusted match policy rather than permanently mapping assignment order to a favored spawn. Record assigned slots, start locations, process limits, build hashes, and evidence hashes.
+
+The observer-host role removes the designated-competitor-host asymmetry; it does not by itself eliminate hardware, scheduling, latency, map-side, or resource asymmetries.
 
 ## Trusted launch policy
 
@@ -51,21 +50,23 @@ Executable paths, runtime installation, fixed runner arguments, environment vari
 
 ## Process supervision
 
-The concrete runtime currently owns process launch, marker-based readiness/result observation, and process-tree termination. Remaining hardening must:
+The current concrete runtime owns two SC2 process handles and two runner process handles, marker-based readiness/result observation, and process-tree termination. The observer-host implementation must extend supervision to three SC2 processes and two runners and must:
 - resolve each admitted immutable build through a trusted artifact resolver and verify its SHA-256 before launch;
-- validate each result marker's player ID against the corresponding join acknowledgement;
+- create and join the observer process without granting CreateGame to a competitor;
+- validate observer readiness and correlate each player result to that player's join acknowledgement;
 - persist bounded per-process stdout/stderr logs;
-- enforce match-duration, memory, and CPU budgets in addition to the current join and stop timeouts;
-- capture the SC2-authoritative result and save replay evidence;
-- prove cleanup idempotence under cancellation, timeout, protocol failure, and host disposal;
+- enforce match-duration, memory, and CPU budgets;
+- capture SC2-authoritative result and replay evidence from the observer channel;
+- prove cleanup idempotence under cancellation, timeout, protocol failure, and partial startup;
 - preserve crash diagnostics and partial replay artifacts without marking the match completed.
 
 ## Implementation sequence
 
-1. Complete trusted artifact resolution and SHA-256 verification for each immutable bot build.
-2. Add contract tests for launch topology, join-marker correlation, result-marker correlation, and partial-start cleanup.
-3. Run two real SC2 processes and both SingularityBot runners on a machine with the configured SC2 installation and map.
-4. Validate terminal result mapping, SC2 replay capture, and bounded cleanup in a local integration run.
-5. Add append-oriented durable session journal and idempotent result handoff to ServerApp.
-
-This document describes the intended vertical slice. It does not claim the process supervisor or two-runner integration already exists.
+1. Prove CreateGame followed by observer join on the pinned SC2 build, including `observed_player_id = 0` semantics.
+2. Derive and test the complete observer-plus-two-player PortSet allocation.
+3. Implement the observer-host process lifecycle and remove competitor CreateGame arguments.
+4. Complete trusted artifact resolution and SHA-256 verification for each immutable bot build.
+5. Add contract tests for observer readiness, player identity correlation, isolation, topology, and partial-start cleanup.
+6. Run three real SC2 processes and both SingularityBot runners on a machine with the configured SC2 installation and map.
+7. Validate terminal result mapping, observer replay capture, fairness metadata, and bounded cleanup in a local integration run.
+8. Add append-oriented durable session journal and idempotent result handoff to ServerApp.
