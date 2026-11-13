@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ServerSC2.Core;
 using ServerSC2.ServerAppAdapter;
 using ServerApp.Core;
@@ -30,22 +31,45 @@ var checks = new (string Name, Action Run)[]
 };
 
 var failures = new List<string>();
+var results = new List<ContractCheckResult>(checks.Length);
 foreach (var check in checks)
 {
     try
     {
         check.Run();
+        results.Add(new ContractCheckResult(check.Name, "passed", null));
         Console.WriteLine($"PASS {check.Name}");
     }
     catch (Exception exception)
     {
         failures.Add($"{check.Name}: {exception.Message}");
+        results.Add(new ContractCheckResult(check.Name, "failed", exception.ToString()));
         Console.WriteLine($"FAIL {check.Name}: {exception.Message}");
     }
 }
 
-Console.WriteLine($"{checks.Length - failures.Count}/{checks.Length} checks passed.");
+var report = new ContractCheckReport(
+    SchemaVersion: 1,
+    Total: results.Count,
+    Passed: results.Count(result => result.Status == "passed"),
+    Failed: failures.Count,
+    Checks: results);
+var reportPath = Path.Combine(Environment.CurrentDirectory, "contract-check-results.json");
+File.WriteAllText(reportPath, JsonSerializer.Serialize(report, new JsonSerializerOptions
+{
+    WriteIndented = true
+}));
+Console.WriteLine($"{report.Passed}/{report.Total} checks passed. Machine-readable report: {reportPath}");
 return failures.Count == 0 ? 0 : 1;
+
+sealed record ContractCheckResult(string Name, string Status, string? Failure);
+
+sealed record ContractCheckReport(
+    int SchemaVersion,
+    int Total,
+    int Passed,
+    int Failed,
+    IReadOnlyList<ContractCheckResult> Checks);
 
 static Sc2ServerProfile ValidProfile() => new(
     "sc2-local-1v1", "0.1.0", "5.0.14", "AbyssalReefLE",
