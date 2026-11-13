@@ -11,6 +11,11 @@ from sc2_probe import (
 
 
 class FakeRequest:
+    id = None
+
+    def HasField(self, name):
+        return name == "id" and self.id is not None
+
     def WhichOneof(self, name):
         return "ping" if name == "request" else None
 
@@ -21,6 +26,10 @@ class FakeRequest:
 class FakeResponse:
     def __init__(self):
         self.payload = None
+        self.id = None
+
+    def HasField(self, name):
+        return name == "id" and self.id is not None
 
     def ParseFromString(self, payload):
         self.payload = json.loads(payload.decode("utf-8"))
@@ -55,6 +64,8 @@ class ProtocolTransportTests(unittest.TestCase):
         self.assertEqual(socket.timeout, 2.5)
         self.assertEqual(socket.sent, b"request-ping")
         self.assertEqual(event["request_type"], "ping")
+        self.assertIsNone(event["request_id"])
+        self.assertIsNone(event["response_id"])
         self.assertEqual(event["response_type"], "ping")
         self.assertTrue(event["response_type_matches"])
         self.assertEqual(
@@ -62,6 +73,16 @@ class ProtocolTransportTests(unittest.TestCase):
         )
         self.assertTrue(event["sent_utc"])
         self.assertTrue(event["received_utc"])
+
+    def test_exchange_captures_optional_envelope_ids_without_requiring_them(self):
+        socket = FakeSocket(b'{"type":"ping"}')
+        request = FakeRequest()
+        request.id = 41
+        response = FakeResponse()
+        response.id = 41
+        _, event = exchange_protocol(socket, request, response, "ping", 1.0)
+        self.assertEqual(event["request_id"], 41)
+        self.assertEqual(event["response_id"], 41)
 
     def test_exchange_preserves_unexpected_response_type_for_audit(self):
         socket = FakeSocket(b'{"type":"create_game"}')
