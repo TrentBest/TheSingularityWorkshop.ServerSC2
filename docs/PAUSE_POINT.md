@@ -26,9 +26,9 @@ The GitHub Actions workflow checks out ServerApp's development source alongside 
 ## Next work
 
 1. Run the new host-side `--CreateGame --Map` path against a runnable SC2 build and verify both runner joins.
-2. Replace the current lease with an atomic footprint of two distinct SC2 listener ports plus one shared StartPort base and offsets `+1..+5`.
-3. Implement typed per-participant runner launch data (including host designation) and allocator contract tests.
-4. Implement a trusted process supervisor for both SC2 instances and both admitted SingularityBot runners.
+2. Implement the trusted process supervisor for both SC2 instances and both admitted SingularityBot runners, consuming the typed participant GamePort and host-role assignments.
+3. Run the host-create path against a runnable SC2 build and verify both runners join the same match with expected player IDs.
+4. Capture authoritative result/replay evidence and prove bounded cleanup for success, timeout, and partial startup.
 5. Establish protocol-level readiness, authoritative result/replay capture, and bounded cleanup.
 6. Add append-oriented durable session history after lifecycle evidence is trustworthy.
 
