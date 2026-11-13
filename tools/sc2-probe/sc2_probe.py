@@ -191,6 +191,109 @@ def perform_setup_exchange(
 
 
 
+def run_observer_setup_sequence(
+    connections: dict[str, Any],
+    sc2api_pb2: Any,
+    *,
+    map_path: str,
+    observer_player_id: int,
+    player_races: dict[str, int],
+    player_port_sets: dict[str, dict[str, Any]],
+    timeout: float,
+    manifest: dict[str, Any],
+    manifest_path: Path,
+) -> dict[str, Any]:
+    """Run the candidate observer-hosted 1v1 setup using only explicit inputs.
+
+    The observer is the sole CreateGame caller. No port layout or observer
+    identity is inferred here; both are supplied by the caller and recorded.
+    This is a probe sequence, not evidence that a particular SC2 build supports it.
+    """
+    player_roles = ("player-1", "player-2")
+    required_roles = {"observer", *player_roles}
+    if set(connections) != required_roles:
+        raise ValueError("Connections must contain exactly observer, player-1, and player-2")
+    if set(player_races) != set(player_roles):
+        raise ValueError("Explicit player races are required for player-1 and player-2")
+    if set(player_port_sets) != set(player_roles):
+        raise ValueError("Explicit port sets are required for player-1 and player-2")
+    if timeout <= 0:
+        raise ValueError("Setup exchange timeout must be positive")
+
+    steps = [
+        {"ordinal": 1, "role": "observer", "request": "create_game"},
+        {"ordinal": 2, "role": "observer", "request": "join_game", "participation": "observed_player_id"},
+        *[
+            {"ordinal": ordinal + 3, "role": role, "request": "join_game", "participation": "race"}
+            for ordinal, role in enumerate(player_roles)
+        ],
+    ]
+    manifest["setup_sequence"] = {
+        "schema_version": 1,
+        "strategy": "candidate-observer-hosted-1v1",
+        "steps": steps,
+        "inputs": {
+            "map_path": map_path,
+            "observer_player_id": observer_player_id,
+            "player_races": dict(player_races),
+            "player_port_sets": {
+                role: {
+                    "server_ports": list(player_port_sets[role]["server_ports"]),
+                    "client_ports": [
+                        list(pair) for pair in player_port_sets[role].get("client_ports", ())
+                    ],
+                }
+                for role in player_roles
+            },
+        },
+        "passed": False,
+    }
+    write_manifest(manifest_path, manifest)
+
+    try:
+        create_request = build_create_game_request(sc2api_pb2, map_path, 2)
+        perform_setup_exchange(
+            connections["observer"], create_request, sc2api_pb2.Response(),
+            "create_game", timeout, role="observer", gate_name="setup_create_game",
+            manifest=manifest, manifest_path=manifest_path,
+        )
+
+        observer_request = build_join_game_request(
+            sc2api_pb2, observed_player_id=observer_player_id
+        )
+        perform_setup_exchange(
+            connections["observer"], observer_request, sc2api_pb2.Response(),
+            "join_game", timeout, role="observer", gate_name="setup_observer_join",
+            manifest=manifest, manifest_path=manifest_path,
+        )
+
+        for role in player_roles:
+            ports = player_port_sets[role]
+            player_request = build_join_game_request(
+                sc2api_pb2,
+                race=player_races[role],
+                server_ports=tuple(ports["server_ports"]),
+                client_ports=tuple(tuple(pair) for pair in ports.get("client_ports", ())),
+            )
+            perform_setup_exchange(
+                connections[role], player_request, sc2api_pb2.Response(),
+                "join_game", timeout, role=role, gate_name=f"setup_{role}_join",
+                manifest=manifest, manifest_path=manifest_path,
+            )
+    except Exception as exc:
+        manifest["setup_sequence"]["error"] = str(exc)
+        manifest["setup_sequence"]["failed_step_count"] = len(
+            manifest.get("protocol_exchanges", ())
+        )
+        write_manifest(manifest_path, manifest)
+        raise
+
+    manifest["setup_sequence"]["passed"] = True
+    manifest["setup_sequence"]["completed_utc"] = utc_now()
+    write_manifest(manifest_path, manifest)
+    return manifest["setup_sequence"]
+
+
 def build_create_game_request(
     sc2api_pb2: Any,
     map_path: str,
