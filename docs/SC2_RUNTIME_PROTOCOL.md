@@ -189,22 +189,41 @@ The CI test injects a CreateGame MultiplayerUnsupported response and verifies th
 
 ## Explicit observer setup sequence
 
-The opt-in probe now exposes a separately testable candidate setup orchestrator. It sends
-CreateGame only through the observer connection, then attempts the observer JoinGame
-using an explicitly supplied observed-player ID, then joins player-1 and player-2 using
-explicit race and PortSet inputs. The orchestrator does not calculate or infer any port
-layout, player identity, or race. It records the complete proposed sequence and inputs
-before sending requests, and each raw request/response exchange plus its structured
-acknowledgement gate is durably written before the next step.
+The probe now has a separately gated live setup mode. The default invocation remains
+ping-only. Live setup requires the additional explicit `--setup-sequence` flag and,
+in addition to the normal trusted executable/install/map/version/output inputs, requires
+an explicit observer player ID, both player race enum values, and a server PortSet pair
+for each player. Repeated client PortSet pairs may also be supplied per player. No
+port arithmetic, race, observer identity, or PortSet is inferred. All explicit ports
+are range-checked and must be globally disjoint across both players.
 
-The sequence stops at the first failed gate. In particular, a rejected observer join
-prevents either player join and leaves the failed response bytes and SC2 error in the
-manifest. CI exercises both a fully acknowledged fake exchange sequence and an
-observer-join FeatureUnsupported failure, including proof that player connections
-were not contacted.
+The live sequence is reached only after all three launched processes answer RequestPing
+and pass the complete identical-build fingerprint gate. It then opens persistent API
+connections and sends CreateGame only on the observer connection, followed by observer
+JoinGame and the two player JoinGame requests. Every request/response byte sequence and
+structured acknowledgement is persisted before proceeding; the first failed gate stops
+the sequence. The setup mode is still opt-in only, and CI never launches SC2.
 
-This is only a candidate request sequence and deterministic orchestration test. It is
-not wired into the live process bootstrap, does not establish that observer-hosted
-CreateGame or multiple clients are supported by a target SC2 build, and does not
-validate observer information isolation, authoritative match results, or replay
-evidence. The live proof gate remains mandatory before production runtime changes.
+Example PowerShell shape (the port values below are placeholders, not a recommended or
+validated layout):
+
+```powershell
+python tools/sc2-probe/sc2_probe.py --execute --setup-sequence `
+  --executable <SC2.exe> --install-dir <SC2-install-dir> `
+  --map <TrustedMap.SC2Map> --expected-version <pinned-version> `
+  --output-dir <probe-output> --base-port 5000 `
+  --observer-player-id <observed-player-id> `
+  --player-1-race <race-enum> --player-2-race <race-enum> `
+  --player-1-server-ports <game-port,base-port> `
+  --player-2-server-ports <game-port,base-port>
+```
+
+The result status `live-setup-sequence-passed` means only that the exact pinned
+processes accepted the recorded CreateGame and JoinGame exchange sequence with the
+supplied explicit inputs. It does not prove the observer sees the intended perspective,
+that player clients are isolated from observer-only information, that the candidate
+PortSet topology is generally supported, or that terminal results/replays are valid.
+It is not a match-readiness or production-compatibility declaration. CI's fake sockets
+continue to prove orchestration and fail-closed behavior only. The production runtime
+and bot-side adapters remain unchanged until further live proof gates are implemented
+and exercised.
