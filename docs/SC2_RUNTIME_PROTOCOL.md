@@ -28,7 +28,7 @@ Repository: https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot, 
 - Both runner processes use the same `JoinGameLadder` implementation. The Blizzard C++ coordinator builds one shared `GameSettings.ports` structure in `SetupPorts` and passes that same structure to each agent's `RequestJoinGame`; the standard coordinator therefore uses one match-scoped multiplayer port set shared by both join requests, not a separately allocated set per bot. The bot's `StartPort` base is consequently a match-level value for both runners, while each runner's `GamePort` remains its own SC2 listener.
 - `SetupPorts` allocates the multiplayer ports consecutively after the SC2 listener ports: shared port, server game/base ports, and client game/base ports. The current SingularityBot arithmetic maps these to `StartPort + 1` through `StartPort + 5`.
 - The development branch adds an explicit host-only `--CreateGame --Map <trusted-map-path>` mode. The host runner connects to its designated SC2 listener, sends `RequestCreateGame` with two participant slots, then joins on the same connection. The second runner omits `--CreateGame` and only joins. This source-level flow remains unverified against a running SC2 installation.
-- After a successful join, each runner emits `SC2_JOINED playerId=<id>`; on terminal SC2 state it emits `SC2_RESULT playerId=<id> result=<result>`. These structured stdout markers are consumed by ServerSC2's process supervisor.
+- After a successful join, each runner emits `SC2_JOINED playerId=<id>`; after observing terminal SC2 state it emits `SC2_RESULT playerId=<id> result=<result>`. These structured stdout markers are consumed by ServerSC2's process supervisor. The supervisor checks that each result marker's player ID matches that runner's earlier join acknowledgement.
 - The local path still launches SC2 and creates a one-participant game with a built-in computer opponent; it is not the competition-host path.
 - The CLI parser accepts `--GamePort` / `-g`, `--StartPort` / `-o`, and `--OpponentId`. It advances arguments in name/value pairs. The host must emit only supported, correctly paired arguments.
 
@@ -48,7 +48,7 @@ The verified architecture is:
 4. Both SC2 clients participate in the same multiplayer session using the protocol's port-set handshake.
 5. ServerSC2 observes authoritative game lifecycle/results and captures replay evidence independently of bot exit codes.
 
-The host runner owns the CreateGame request on its own SC2 WebSocket connection and then continues on that same connection into JoinGameLadder. ServerSC2's `Sc2ProcessSessionRuntime` now starts both SC2 processes, launches the two runner processes with trusted fixed arguments, and waits for both `SC2_JOINED` markers before returning Ready. Both runners receive the same StartPort base and distinct GamePort values. The exact live SC2 handshake remains unverified.
+The host runner owns the CreateGame request on its own SC2 WebSocket connection and then continues on that same connection into JoinGameLadder. ServerSC2's `Sc2ProcessSessionRuntime` now starts both SC2 processes, launches the two runner processes with trusted fixed arguments, and waits for both `SC2_JOINED` markers with distinct player IDs before returning Ready. Both runners receive the same StartPort base and distinct GamePort values. On observation of both result markers, the supervisor verifies each marker's player ID against the corresponding join acknowledgement before reporting Completed. Result values are not yet exposed as durable match evidence, and the exact live SC2 handshake remains unverified.
 
 ## Unresolved integration gate
 
@@ -56,7 +56,7 @@ The allocator, typed adapter mapping, and initial process supervisor now exist. 
 
 1. Verify the host runner's `--CreateGame --Map` path and map/player setup against a runnable SC2 build.
 2. Verify both runners join the same match with the shared multiplayer port set and receive distinct player IDs.
-3. Verify that each `SC2_RESULT` marker matches the joined player ID and map results to immutable participants.
+3. Persist each validated result value and map it to the immutable participant assignment.
 4. Implement SC2 replay saving and validate the authoritative result/replay evidence.
 5. Exercise bounded shutdown and cleanup of both SC2 processes and both runner process trees after success, timeout, and partial startup.
 
@@ -65,10 +65,10 @@ The allocator leases two distinct listener ports and one shared StartPort base w
 ## Readiness and completion rules
 
 - An open TCP port or live process is not protocol readiness.
-- Both runner processes must complete their protocol joins and be associated with the expected participant identities.
-- A match is Ready only when both SC2 instances, the authoritative multiplayer game, and both admitted runners have passed their required readiness checks.
+- Both runner processes must complete their protocol joins, report distinct player IDs, and remain associated with their immutable participant assignments.
+- The current supervisor returns Ready after both runner JoinGame responses have been acknowledged. This is a source-level readiness gate; live SC2 verification and direct game-state confirmation remain open.
 - A runner exit code is diagnostic only; it is never a win/loss declaration.
-- A match is Completed only after SC2 reports terminal state and the host validates the player-result mapping.
+- The current supervisor reports Completed after both runners emit terminal result markers and each marker's player ID matches that runner's acknowledged join ID. Durable result capture, independent host validation, and replay saving remain open.
 - Replay and result artifacts must be bound to match/session identity, game/map version, and both bot build hashes.
 - Ambiguous topology, missing result, mismatched identity, or partial startup fails closed.
 
