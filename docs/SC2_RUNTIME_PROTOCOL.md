@@ -27,7 +27,8 @@ Repository: https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot, 
 - `JoinGameLadder` builds a join request with `shared_port = startPort + 1`, server PortSet `(startPort + 2, startPort + 3)`, and client PortSet `(startPort + 4, startPort + 5)`. It requests raw and score interface data.
 - Both runner processes use the same `JoinGameLadder` implementation. The Blizzard C++ coordinator builds one shared `GameSettings.ports` structure in `SetupPorts` and passes that same structure to each agent's `RequestJoinGame`; the standard coordinator therefore uses one match-scoped multiplayer port set shared by both join requests, not a separately allocated set per bot. The bot's `StartPort` base is consequently a match-level value for both runners, while each runner's `GamePort` remains its own SC2 listener.
 - `SetupPorts` allocates the multiplayer ports consecutively after the SC2 listener ports: shared port, server game/base ports, and client game/base ports. The current SingularityBot arithmetic maps these to `StartPort + 1` through `StartPort + 5`.
-- `RunLadder` originally did not call `CreateGame`. The development branch now adds an explicit host-only `--CreateGame --Map <trusted-map-path>` mode: that runner connects to its designated SC2 host listener, sends `RequestCreateGame` with two participant slots, then proceeds through its existing `JoinGameLadder` path. The second runner omits `--CreateGame` and only joins. This is a source-level integration change, not yet validated against a running SC2 installation.
+- The development branch adds an explicit host-only `--CreateGame --Map <trusted-map-path>` mode. The host runner connects to its designated SC2 listener, sends `RequestCreateGame` with two participant slots, then joins on the same connection. The second runner omits `--CreateGame` and only joins. This source-level flow remains unverified against a running SC2 installation.
+- After a successful join, each runner emits `SC2_JOINED playerId=<id>`; on terminal SC2 state it emits `SC2_RESULT playerId=<id> result=<result>`. These structured stdout markers are consumed by ServerSC2's process supervisor.
 - The local path still launches SC2 and creates a one-participant game with a built-in computer opponent; it is not the competition-host path.
 - The CLI parser accepts `--GamePort` / `-g`, `--StartPort` / `-o`, and `--OpponentId`. It advances arguments in name/value pairs. The host must emit only supported, correctly paired arguments.
 
@@ -47,16 +48,17 @@ The verified architecture is:
 4. Both SC2 clients participate in the same multiplayer session using the protocol's port-set handshake.
 5. ServerSC2 observes authoritative game lifecycle/results and captures replay evidence independently of bot exit codes.
 
-The host runner now owns the CreateGame request on its own SC2 WebSocket connection and then continues on that same connection into JoinGameLadder; this follows Blizzard's coordinator pattern, which creates the game through its first client before issuing join requests through both clients. The match-level StartPort base and its five derived multiplayer ports are shared by both join requests, while each runner receives its own SC2 listener GamePort. The exact listener/port reservation behavior still needs a live integration test. The bot's current `RunLadder` path itself cannot perform step 2 because it only calls `JoinGameLadder`.
+The host runner owns the CreateGame request on its own SC2 WebSocket connection and then continues on that same connection into JoinGameLadder. ServerSC2's `Sc2ProcessSessionRuntime` now starts both SC2 processes, launches the two runner processes with trusted fixed arguments, and waits for both `SC2_JOINED` markers before returning Ready. Both runners receive the same StartPort base and distinct GamePort values. The exact live SC2 handshake remains unverified.
 
 ## Unresolved integration gate
 
-The source-level allocator and typed adapter mapping now reserve a complete 1v1 port footprint. Remaining integration gates must be proved against a runnable SC2 build and the exact SingularityBot revision:
+The allocator, typed adapter mapping, and initial process supervisor now exist. Remaining integration gates must be proved against a runnable SC2 build and the exact SingularityBot revision:
 
-1. Verify the host runner's new `--CreateGame --Map` path and map/player setup against a runnable SC2 build.
-2. Verify both runners join the same match with the shared multiplayer port set and receive the expected distinct player IDs.
-3. Verify how the host observes both player identities/results and saves the replay after terminal state.
-4. Prove shutdown ownership and cleanup of both SC2 processes and runner process trees after partial startup.
+1. Verify the host runner's `--CreateGame --Map` path and map/player setup against a runnable SC2 build.
+2. Verify both runners join the same match with the shared multiplayer port set and receive distinct player IDs.
+3. Verify that each `SC2_RESULT` marker matches the joined player ID and map results to immutable participants.
+4. Implement SC2 replay saving and validate the authoritative result/replay evidence.
+5. Exercise bounded shutdown and cleanup of both SC2 processes and both runner process trees after success, timeout, and partial startup.
 
 The allocator leases two distinct listener ports and one shared StartPort base with offsets `+1..+5` as one process-local unit. It is not an OS socket reservation, and it has not yet been exercised against a live SC2 installation. Keep the runtime seam injected until live handshake, result, replay, and cleanup gates are closed.
 
@@ -72,4 +74,4 @@ The allocator leases two distinct listener ports and one shared StartPort base w
 
 ## Implementation gate
 
-The `ISc2SessionRuntime` seam remains the right place for the concrete SimulationServer. The testable port-footprint model and per-participant host/listener assignment now exist; next implement the trusted process supervisor and prove the full two-runner handshake against live SC2. The runtime must own fixed host launch arguments, both SC2 process trees, both runner process trees, protocol-level readiness, authoritative result/replay capture, and bounded cleanup.
+The `Sc2ProcessSessionRuntime` now owns fixed SC2 launch arguments, two SC2 process handles, two runner process handles, join-marker readiness, result-marker observation, and process-tree termination. The trusted artifact resolver, result/player identity validation, replay capture, durable evidence, and live-SC2 proof remain open. The port allocator is process-local rather than an OS socket reservation.
