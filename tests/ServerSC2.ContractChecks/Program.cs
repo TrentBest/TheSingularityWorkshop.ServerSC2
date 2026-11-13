@@ -8,6 +8,7 @@ var checks = new (string Name, Action Run)[]
     ("overlapping port ranges are rejected", OverlappingRangesAreRejected),
     ("insufficient port capacity is rejected", InsufficientCapacityIsRejected),
     ("leases allocate two listener ports and a shared multiplayer block", LeasesAreDistinct),
+    ("leases size participant ports and multiplayer blocks by format", VariableParticipantLease),
     ("pool enforces maximum concurrency", PoolEnforcesCapacity),
     ("disposing a lease makes its slot reusable", DisposedLeaseIsReusable),
     ("lease disposal is idempotent", LeaseDisposalIsIdempotent),
@@ -74,6 +75,36 @@ static void LeasesAreDistinct()
         Assert(first.HostGamePort != first.StartPort && first.JoinerGamePort != first.StartPort + 1,
             "Listener and multiplayer ports collided.");
     }
+}
+
+static void VariableParticipantLease()
+{
+    var profile = ValidProfile() with
+    {
+        GamePortLast = 5011,
+        StartPortLast = 6027,
+        MaximumParticipantsPerMatch = 3
+    };
+    Assert(profile.Validate().Count == 0, "Expected the three-participant profile to be valid.");
+
+    var pool = new Sc2PortLeasePool(profile);
+    Assert(pool.TryAcquire(2, out var twoPlayer) && twoPlayer is not null, "Two-participant lease failed.");
+    Assert(pool.TryAcquire(3, out var threePlayer) && threePlayer is not null, "Three-participant lease failed.");
+    using (twoPlayer)
+    using (threePlayer)
+    {
+        Assert(twoPlayer!.ParticipantGamePorts.Count == 2, "Two-participant lease has the wrong listener count.");
+        Assert(threePlayer!.ParticipantGamePorts.Count == 3, "Three-participant lease has the wrong listener count.");
+        Assert(twoPlayer.MultiplayerPortCount == 7 && threePlayer.MultiplayerPortCount == 7,
+            "The lease did not reserve the profile's maximum multiplayer footprint.");
+        Assert(twoPlayer.ParticipantGamePorts.Intersect(threePlayer.ParticipantGamePorts).Count() == 0,
+            "Participant listener ranges collided.");
+        var firstBlock = Enumerable.Range(twoPlayer.StartPort, twoPlayer.MultiplayerPortCount + 1);
+        var secondBlock = Enumerable.Range(threePlayer.StartPort, threePlayer.MultiplayerPortCount + 1);
+        Assert(!firstBlock.Intersect(secondBlock).Any(), "Multiplayer port blocks collided.");
+    }
+
+    Assert(!pool.TryAcquire(4, out _), "The pool accepted more participants than the profile allows.");
 }
 
 static void PoolEnforcesCapacity()
