@@ -21,7 +21,9 @@ var checks = new (string Name, Action Run)[]
     ("observer process plan rejects invalid build and port boundaries", ObserverPlanRejectsInvalidBoundaries),
     ("observer process plan requires pinned runtime metadata", ObserverPlanRequiresRuntimeMetadata),
     ("observer process plan snapshots caller-owned participant collections", ObserverPlanSnapshotsParticipants),
-    ("observer process plan rejects null participant entries", ObserverPlanRejectsNullParticipant)
+    ("observer process plan rejects null participant entries", ObserverPlanRejectsNullParticipant),
+    ("observer process plan preserves multi-team and FFA assignments", ObserverPlanPreservesTeamAssignments),
+    ("observer process plan rejects duplicate participant identities and ports", ObserverPlanRejectsDuplicateIdentityAndPorts)
 };
 
 var failures = new List<string>();
@@ -283,6 +285,62 @@ static void ObserverPlanRejectsNullParticipant()
     participants[0] = null!;
     var request = valid with { Participants = participants };
     AssertThrows(() => Sc2MatchProcessPlan.Create(request), "null participant");
+}
+
+static void ObserverPlanPreservesTeamAssignments()
+{
+    var teamMatch = ObserverLaunchRequest(6) with
+    {
+        Participants = Array.AsReadOnly(Enumerable.Range(0, 6)
+            .Select(index => new Sc2ParticipantLaunch(
+                $"team-player-{index + 1}",
+                $"team-{index / 2 + 1}",
+                new BotBuildReference($"bot-{index + 1}", $"build-{index + 1}",
+                    new string("abcdef0123456789"[index % 16], 64)),
+                5100 + index,
+                false))
+            .ToArray())
+    };
+    var teamPlan = Sc2MatchProcessPlan.Create(teamMatch);
+    Assert(teamPlan.BotRunners.Select(p => p.TeamId)
+        .SequenceEqual(new[] { "team-1", "team-1", "team-2", "team-2", "team-3", "team-3" }),
+        "The process plan changed the 2v2v2 team assignment.");
+
+    var ffaMatch = ObserverLaunchRequest(8) with
+    {
+        Participants = Array.AsReadOnly(Enumerable.Range(0, 8)
+            .Select(index => new Sc2ParticipantLaunch(
+                $"ffa-player-{index + 1}",
+                $"ffa-team-{index + 1}",
+                new BotBuildReference($"ffa-bot-{index + 1}", $"ffa-build-{index + 1}",
+                    new string("abcdef0123456789"[index % 16], 64)),
+                5200 + index,
+                false))
+            .ToArray())
+    };
+    var ffaPlan = Sc2MatchProcessPlan.Create(ffaMatch);
+    Assert(ffaPlan.BotRunners.Select(p => p.TeamId).Distinct(StringComparer.Ordinal).Count() == 8,
+        "The process plan collapsed independent FFA entrants into shared teams.");
+    Assert(ffaPlan.BotRunners.Count == 8 && ffaPlan.Sc2Clients.Count == 9,
+        "The FFA process plan did not retain one runner and player client per entrant plus the observer.");
+}
+
+static void ObserverPlanRejectsDuplicateIdentityAndPorts()
+{
+    var valid = ObserverLaunchRequest(2);
+    var duplicateIdentity = valid with
+    {
+        Participants = Array.AsReadOnly(valid.Participants.Select((p, index) =>
+            index == 1 ? p with { ParticipantId = valid.Participants[0].ParticipantId } : p).ToArray())
+    };
+    AssertThrows(() => Sc2MatchProcessPlan.Create(duplicateIdentity), "participant IDs must be unique");
+
+    var duplicatePort = valid with
+    {
+        Participants = Array.AsReadOnly(valid.Participants.Select((p, index) =>
+            index == 1 ? p with { GamePort = valid.Participants[0].GamePort } : p).ToArray())
+    };
+    AssertThrows(() => Sc2MatchProcessPlan.Create(duplicatePort), "distinct listener port");
 }
 
 static void AssertThrows(Action action, string expectedMessage)
