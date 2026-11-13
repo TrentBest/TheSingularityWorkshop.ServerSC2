@@ -38,9 +38,17 @@ public sealed record Sc2MatchProcessPlan(
         ArgumentException.ThrowIfNullOrWhiteSpace(request.GameVersion);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.MapId);
 
-        if (request.Participants is null || request.Participants.Count is < 2 or > 64)
+        if (request.Participants is null)
+            throw new InvalidOperationException("An observer-hosted SC2 match requires a participant collection.");
+
+        // Snapshot caller-owned input before validating or constructing the launch plan.
+        // A mutable collection must not be able to change topology after admission.
+        var participants = request.Participants.ToArray();
+        if (participants.Length is < 2 or > 64)
             throw new InvalidOperationException("An observer-hosted SC2 match requires between 2 and 64 participants.");
-        if (request.Participants.Any(p => string.IsNullOrWhiteSpace(p.ParticipantId) ||
+        if (participants.Any(p => p is null))
+            throw new InvalidOperationException("An observer-hosted SC2 match cannot contain a null participant.");
+        if (participants.Any(p => string.IsNullOrWhiteSpace(p.ParticipantId) ||
             string.IsNullOrWhiteSpace(p.TeamId) || p.BotBuild is null ||
             string.IsNullOrWhiteSpace(p.BotBuild.BuildId) ||
             p.BotBuild.ContentSha256 is null ||
@@ -48,15 +56,15 @@ public sealed record Sc2MatchProcessPlan(
             !p.BotBuild.ContentSha256.All(Uri.IsHexDigit) ||
             p.GamePort is < 1 or > 65535))
             throw new InvalidOperationException("Every participant requires an identity, team, SHA-256 build reference, and valid listener port.");
-        if (request.Participants.Select(p => p.ParticipantId).Distinct(StringComparer.Ordinal).Count() != request.Participants.Count)
+        if (participants.Select(p => p.ParticipantId).Distinct(StringComparer.Ordinal).Count() != participants.Length)
             throw new InvalidOperationException("SC2 participant IDs must be unique.");
-        if (request.Participants.Select(p => p.GamePort).Distinct().Count() != request.Participants.Count)
+        if (participants.Select(p => p.GamePort).Distinct().Count() != participants.Length)
             throw new InvalidOperationException("Every participant SC2 client requires a distinct listener port.");
-        if (request.Participants.Any(p => p.IsGameHost))
+        if (participants.Any(p => p.IsGameHost))
             throw new InvalidOperationException("Participant clients cannot own CreateGame authority in observer-hosted topology.");
 
         // One observer plus N player clients each consume two ports, with one shared port.
-        var multiplayerPortCount = (2 * (request.Participants.Count + 1)) + 1;
+        var multiplayerPortCount = (2 * (participants.Length + 1)) + 1;
         if (request.StartPort < 1 || request.StartPort > 65535 - multiplayerPortCount + 1)
             throw new InvalidOperationException("The match-level StartPort cannot reserve the observer and participant multiplayer port block.");
 
@@ -64,14 +72,14 @@ public sealed record Sc2MatchProcessPlan(
         if (request.Participants.Any(p => p.GamePort >= request.StartPort && p.GamePort <= multiplayerPortLast))
             throw new InvalidOperationException("Participant listener ports cannot overlap the match multiplayer port block.");
 
-        var clients = new List<Sc2ClientProcessPlan>(request.Participants.Count + 1)
+        var clients = new List<Sc2ClientProcessPlan>(participants.Length + 1)
         {
             new(Sc2ProcessRole.Observer, 0, null, null, true)
         };
 
-        for (var index = 0; index < request.Participants.Count; index++)
+        for (var index = 0; index < participants.Length; index++)
         {
-            var participant = request.Participants[index];
+            var participant = participants[index];
             clients.Add(new Sc2ClientProcessPlan(
                 Sc2ProcessRole.Participant,
                 index + 1,
@@ -85,6 +93,6 @@ public sealed record Sc2MatchProcessPlan(
             request.SessionId,
             request.StartPort,
             Array.AsReadOnly(clients.ToArray()),
-            Array.AsReadOnly(request.Participants.ToArray()));
+            Array.AsReadOnly(participants));
     }
 }
