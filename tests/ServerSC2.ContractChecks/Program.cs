@@ -166,7 +166,7 @@ static void AdapterReleasesOnStartupFailure()
 {
     var pool = new Sc2PortLeasePool(ValidProfile());
     var runtime = new FakeSc2Runtime { ThrowOnStart = true };
-    using var adapter = CreateAdapter(pool, runtime);
+    var adapter = CreateAdapter(pool, runtime);
     try
     {
         adapter.StartAsync(new GameSessionStartRequest(TestAssignment(), "session-003"))
