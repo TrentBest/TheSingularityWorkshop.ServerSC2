@@ -7,7 +7,7 @@ var checks = new (string Name, Action Run)[]
     ("valid profile is accepted", ValidProfileIsAccepted),
     ("overlapping port ranges are rejected", OverlappingRangesAreRejected),
     ("insufficient port capacity is rejected", InsufficientCapacityIsRejected),
-    ("leases allocate two listener ports and a shared multiplayer block", LeasesAreDistinct),
+    ("leases allocate participant listeners and an observer-capable multiplayer block", LeasesAreDistinct),
     ("leases size participant ports and multiplayer blocks by format", VariableParticipantLease),
     ("pool enforces maximum concurrency", PoolEnforcesCapacity),
     ("disposing a lease makes its slot reusable", DisposedLeaseIsReusable),
@@ -70,7 +70,7 @@ static void LeasesAreDistinct()
             first.JoinerGamePort != second.HostGamePort && first.JoinerGamePort != second.JoinerGamePort,
             "Concurrent match listener ports collided.");
         Assert(first.StartPort != second.StartPort, "Multiplayer block bases collided.");
-        Assert(first.StartPort + 5 < second.StartPort || second.StartPort + 5 < first.StartPort,
+        Assert(first.StartPort + 7 < second.StartPort || second.StartPort + 7 < first.StartPort,
             "Concurrent multiplayer port blocks overlapped.");
         Assert(first.HostGamePort != first.StartPort && first.JoinerGamePort != first.StartPort + 1,
             "Listener and multiplayer ports collided.");
@@ -82,7 +82,7 @@ static void VariableParticipantLease()
     var profile = ValidProfile() with
     {
         GamePortLast = 5011,
-        StartPortLast = 6027,
+        StartPortLast = 6031,
         MaximumParticipantsPerMatch = 3
     };
     Assert(profile.Validate().Count == 0, "Expected the three-participant profile to be valid.");
@@ -95,8 +95,8 @@ static void VariableParticipantLease()
     {
         Assert(twoPlayer!.ParticipantGamePorts.Count == 2, "Two-participant lease has the wrong listener count.");
         Assert(threePlayer!.ParticipantGamePorts.Count == 3, "Three-participant lease has the wrong listener count.");
-        Assert(twoPlayer.MultiplayerPortCount == 7 && threePlayer.MultiplayerPortCount == 7,
-            "The lease did not reserve the profile's maximum multiplayer footprint.");
+        Assert(twoPlayer.MultiplayerPortCount == 9 && threePlayer.MultiplayerPortCount == 9,
+            "The lease did not reserve the profile's observer-plus-participant multiplayer footprint.");
         Assert(twoPlayer.ParticipantGamePorts.Intersect(threePlayer.ParticipantGamePorts).Count() == 0,
             "Participant listener ranges collided.");
         var firstBlock = Enumerable.Range(twoPlayer.StartPort, twoPlayer.MultiplayerPortCount + 1);
