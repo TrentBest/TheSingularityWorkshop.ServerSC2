@@ -31,7 +31,7 @@ The current bot source already provides the player-side entry point:
 - RunLadder connects to the supplied game port, then calls JoinGameLadder with the supplied start port and opponent ID.
 - StartSC2Instance and CreateGame belong to the local single-player path. The SimulationServer must not invoke that path for either competition participant.
 
-The host should launch the approved runner artifact with the documented ladder arguments, not embed strategy code or create a second protocol client. The adapter now supplies a distinct listener GamePort for each participant and one shared StartPort base for the match. Its allocator reserves both listeners and the five derived multiplayer ports as one lease. The host-designated runner receives `--CreateGame --Map <trusted-map-path>`; it connects to its SC2 listener, creates the multiplayer game with two participant slots, then performs the normal ladder join on that same connection. The second runner only joins. Both runners receive distinct GamePort values because they connect to separate SC2 listener processes, but both receive the same match-level StartPort base and therefore the same shared/server/client PortSet values. Blizzard's coordinator uses one shared ports structure for both join requests. The current allocator still needs to be upgraded to reserve two listener ports plus the shared five-port multiplayer block atomically; see SC2_RUNTIME_PROTOCOL.md.
+The host should launch the approved runner artifact with the documented ladder arguments, not embed strategy code or create a second protocol client. The adapter supplies a distinct listener GamePort for each participant and one shared StartPort base for the match. The allocator reserves both listeners and the five derived multiplayer ports as one process-local lease. The host-designated runner receives `--CreateGame --Map <trusted-map-path>`; it connects to its SC2 listener, creates the multiplayer game with two participant slots, then performs the normal ladder join on that same connection. The second runner only joins. Both runners receive distinct GamePort values and the same match-level StartPort base. `Sc2ProcessSessionRuntime` now launches the two SC2 processes and two runner processes, and waits for both `SC2_JOINED` player-ID markers before returning Ready. Live SC2 verification remains outstanding; see SC2_RUNTIME_PROTOCOL.md.
 
 ## Authority and evidence
 
@@ -51,23 +51,21 @@ Executable paths, runtime installation, fixed runner arguments, environment vari
 
 ## Process supervision
 
-The concrete runtime must:
-- retain process handles for both SC2 instances and both bot runners;
-- redirect and continuously drain stdout/stderr to bounded per-process logs;
-- enforce startup, readiness, match-duration, memory, CPU, and shutdown budgets;
-- detect early process exit without treating it as a game result;
-- terminate child process trees on cancellation, timeout, protocol failure, and host disposal;
-- make cleanup idempotent and release port leases only after owned processes are stopped or definitively abandoned with an explicit failure record;
+The concrete runtime currently owns process launch, marker-based readiness/result observation, and process-tree termination. Remaining hardening must:
+- resolve each admitted immutable build through a trusted artifact resolver and verify its SHA-256 before launch;
+- validate each result marker's player ID against the corresponding join acknowledgement;
+- persist bounded per-process stdout/stderr logs;
+- enforce match-duration, memory, and CPU budgets in addition to the current join and stop timeouts;
+- capture the SC2-authoritative result and save replay evidence;
+- prove cleanup idempotence under cancellation, timeout, protocol failure, and host disposal;
 - preserve crash diagnostics and partial replay artifacts without marking the match completed.
 
 ## Implementation sequence
 
-1. Upgrade the lease model to reserve two distinct SC2 listener ports and one shared match StartPort base plus offsets `+1..+5` atomically.
-2. Add a typed per-participant runner launch contract derived from the immutable assignment, including which participant is the designated host.
-3. Implement an injectable process launcher and fake-process contract tests.
-4. Implement both SC2 processes, launch the host runner with `--CreateGame --Map`, launch the joining runner without that flag, and add protocol-level health checks.
-5. Launch two real SingularityBot runner processes, each attached to its assigned SC2 instance.
-6. Validate readiness, terminal result, replay capture, and bounded cleanup in a local integration run.
-7. Add append-oriented durable session journal and idempotent result handoff to ServerApp.
+1. Complete trusted artifact resolution and SHA-256 verification for each immutable bot build.
+2. Add contract tests for launch topology, join-marker correlation, result-marker correlation, and partial-start cleanup.
+3. Run two real SC2 processes and both SingularityBot runners on a machine with the configured SC2 installation and map.
+4. Validate terminal result mapping, SC2 replay capture, and bounded cleanup in a local integration run.
+5. Add append-oriented durable session journal and idempotent result handoff to ServerApp.
 
 This document describes the intended vertical slice. It does not claim the process supervisor or two-runner integration already exists.
