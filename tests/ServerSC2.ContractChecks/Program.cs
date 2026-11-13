@@ -150,7 +150,7 @@ static void AdapterRejectsWrongGame()
 {
     var pool = new Sc2PortLeasePool(ValidProfile());
     var runtime = new FakeSc2Runtime();
-    using var adapter = CreateAdapter(pool, runtime);
+    var adapter = CreateAdapter(pool, runtime);
     try
     {
         adapter.StartAsync(new GameSessionStartRequest(TestAssignment("another-game"), "session-002"))
