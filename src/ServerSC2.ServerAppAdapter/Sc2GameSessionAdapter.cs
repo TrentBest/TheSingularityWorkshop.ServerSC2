@@ -139,6 +139,12 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
         await active.Gate.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
+            if (_disposed)
+            {
+                RemoveAndRelease(request.SessionId, active);
+                throw new ObjectDisposedException(nameof(Sc2GameSessionAdapter));
+            }
+
             var launch = new Sc2SessionLaunchRequest(
                 assignment.MatchId,
                 request.SessionId,
