@@ -197,6 +197,11 @@ static void ObserverPlanScales()
             "SC2 client ordinals must be unique.");
     }
 
+    var maximumPlan = Sc2MatchProcessPlan.Create(ObserverLaunchRequest(64));
+    Assert(maximumPlan.Sc2Clients.Count == 65 && maximumPlan.BotRunners.Count == 64,
+        "The maximum supported participant count did not produce one observer plus 64 player clients.");
+    AssertThrows(() => Sc2MatchProcessPlan.Create(ObserverLaunchRequest(65)), "between 2 and 64");
+
     var invalid = ObserverLaunchRequest(2);
     var participantWithAuthority = invalid with
     {
