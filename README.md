@@ -9,9 +9,9 @@
 
 - **ServerApp** owns game-neutral competition contracts, immutable bot-build admission, trusted role selection, and the generic game-session lifecycle contract.
 - **ServerSC2** owns StarCraft II session configuration, game-specific slot and port allocation, SC2 process supervision, bot attachment, readiness, termination, replay capture, and authoritative game-result evidence.
-- **SimulationServer** is the runtime model: host one authoritative SC2 simulation and launch/connect two independent bot runners from their admitted immutable builds.
+- **SimulationServer** is the target runtime model: one neutral simulation-host/observer creates and observes the match, while each admitted entrant receives an isolated player SC2 process and independently supervised runner. The current production supervisor is still the legacy two-player competitor-host implementation; the observer topology is not yet live-proven.
 - **Experiences** remains the source of reusable, versioned MicroBundles. ServerSC2 may compose approved bundles through FSM_COS; it does not duplicate their domain implementations.
-- **SingularityBot** remains an independently launched player runtime. Its strategy and bot-side SC2 protocol adapter do not move into this repository.
+- **SingularityBot** remains an independently launched player runtime and a bot-authoring foundation. Its strategy and bot-side SC2 protocol adapter do not move into this repository, and it is not a required host dependency.
 - **FSM_COS** composes approved MicroBundles. **FSM_Foundry** executes host-authored workflows. **FSM_API** supplies runtime state/context primitives.
 
 The first target is a controlled local 1v1 vertical slice. No public matchmaking, ratings, tournament system, or production anti-cheat claim is implied by this repository's existence.
@@ -24,13 +24,13 @@ Only trusted host configuration may choose the SC2 installation, maps, runtime r
 
 Work on development. Keep master aligned with the last released state; do not publish, merge, release, or deploy without explicit authorization.
 
-The current foundation includes validated server profiles, an atomic two-listener/shared-multiplayer-port lease for each 1v1 match, a ServerApp IGameSessionAdapter bridge with typed host/listener assignments, and an initial process supervisor that launches two SC2 instances plus two immutable-build runner executables. The supervisor waits for both structured join acknowledgements and retains runner result markers as diagnostics only; those markers cannot complete a match. Completion is fail-closed until host-authoritative SC2 terminal results and validated replay evidence are both available. The trusted artifact resolver and live-SC2, result/replay, and cleanup proofs remain outstanding. Port leases prevent collisions among this host process's own concurrent matches; they are not OS-level socket reservations.
+The current foundation includes validated server profiles, a scaled observer-plus-participants port reservation model, a ServerApp IGameSessionAdapter bridge, an observer-oriented process-plan contract, and an initial legacy process supervisor. That supervisor still launches two SC2 instances plus two runners and grants CreateGame authority to one participant; it is not the target observer topology. It waits for both structured join acknowledgements, but runner result markers are diagnostics only and cannot complete a match. Completion is fail-closed until host-authoritative SC2 terminal results and validated replay evidence are both available. The trusted artifact resolver and live-SC2, result/replay, and cleanup proofs remain outstanding. Port reservations are process-local and are not OS-level socket reservations.
 
-See [the architecture](docs/ARCHITECTURE.md), [SimulationServer orchestration](docs/SIMULATION_SERVER.md), [SC2 runtime protocol notes](docs/SC2_RUNTIME_PROTOCOL.md), and [the pause point](docs/PAUSE_POINT.md).
+See [the architecture](docs/ARCHITECTURE.md), [SimulationServer orchestration](docs/SIMULATION_SERVER.md), [SC2 runtime protocol notes](docs/SC2_RUNTIME_PROTOCOL.md), [observer-host design](docs/OBSERVER_HOST_DESIGN.md), and [the pause point](docs/PAUSE_POINT.md).
 
 ## Status
 
-Next: wire the trusted immutable-build artifact resolver, prove the two-runner handshake against live SC2, correlate player/result identities, and capture authoritative replay/result evidence. A submission queue and cup progression remain later ServerApp competition-policy work; they are not prerequisites for proving a local 1v1 match.
+Next: implement the standalone, explicitly opt-in SC2 protocol probe described in [SC2_RUNTIME_PROTOCOL.md](docs/SC2_RUNTIME_PROTOCOL.md). It must prove CreateGame, observer join, two player joins, observer-authoritative results/replay, information isolation, and bounded cleanup against a pinned SC2 build before the production supervisor topology changes. A submission queue and cup progression remain later ServerApp competition-policy work; they are not prerequisites for proving the local match protocol.
 
 ---
 
