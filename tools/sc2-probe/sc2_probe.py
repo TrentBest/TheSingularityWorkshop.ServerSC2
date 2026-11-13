@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -194,7 +195,7 @@ def run_probe(config: ProbeConfig) -> int:
             manifest["processes"][ordinal]["ping_ready_utc"] = utc_now()
 
         versions = {entry["game_version"] for entry in manifest["protocol"].values()}
-        manifest["gates"]["api_ping"] = {"passed": True, "process_count": len(versions) if False else 3}
+        manifest["gates"]["api_ping"] = {"passed": True, "process_count": len(processes)}
         manifest["gates"]["version_match"] = {
             "passed": all(config.expected_version in version for version in versions),
             "expected": config.expected_version,
@@ -215,17 +216,26 @@ def run_probe(config: ProbeConfig) -> int:
             outcome: dict[str, Any] = {"role": role, "pid": process.pid}
             if process.poll() is None:
                 try:
-                    process.terminate()
+                    if os.name == "nt":
+                        process.terminate()
+                    else:
+                        os.killpg(process.pid, signal.SIGTERM)
                     process.wait(timeout=config.shutdown_timeout)
                     outcome["terminated"] = True
                 except subprocess.TimeoutExpired:
-                    process.kill()
                     try:
+                        if os.name == "nt":
+                            subprocess.run(
+                                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                                check=False, capture_output=True, timeout=config.shutdown_timeout,
+                            )
+                        else:
+                            os.killpg(process.pid, signal.SIGKILL)
                         process.wait(timeout=config.shutdown_timeout)
                         outcome["killed_after_timeout"] = True
-                    except subprocess.TimeoutExpired:
+                    except (OSError, subprocess.TimeoutExpired) as exc:
                         outcome["terminated"] = False
-                        outcome["error"] = "Process remained alive after kill timeout"
+                        outcome["error"] = str(exc)
             else:
                 outcome["already_exited"] = True
             outcome["exit_code"] = process.poll()
