@@ -99,3 +99,17 @@ The implementation order is therefore:
 5. Only then replace the existing port lease model and enable observer-hosted sessions by default.
 
 See [OBSERVER_HOST_DESIGN.md](OBSERVER_HOST_DESIGN.md) for the complete process model, fairness policy, scaling boundary, and acceptance gates.
+
+### Port-layout derivation from Blizzard's reference coordinator
+
+Inspection of Blizzard's `Coordinator::SetupPorts(num_agents, port_start)` establishes the current arithmetic for N participating SC2 clients when the multiplayer setup path is used:
+
+- `shared_port` = base + 1
+- `server_ports.game_port/base_port` = base + 2 / base + 3
+- one client PortSet (game/base) is allocated for each additional client, beginning at base + 4 / base + 5
+
+Thus the reference coordinator allocates a 5-port multiplayer block for two clients, and a 7-port block for three clients (shared + server pair + two client pairs). This is a useful derivation for the candidate observer-plus-two-player topology, not yet proof that an observer is accepted as the third client by the pinned game build.
+
+There is also a concrete bot-side compatibility gap: the current SingularityBot `JoinGameLadder` populates only one `client_ports` entry. A three-client topology may require both client PortSets to be supplied by every joining client. Do not implement the observer topology by simply adding a third listener while retaining the current one-entry port payload. The player adapter contract must be updated and live-verified alongside the ServerSC2 lease model.
+
+Reference source: https://github.com/Blizzard/s2client-api/blob/master/src/sc2api/sc2_coordinator.cc (`Coordinator::SetupPorts`, `CoordinatorImp::JoinGame`).
