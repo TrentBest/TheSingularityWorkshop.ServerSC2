@@ -1,30 +1,33 @@
 # SC2 Runtime Protocol Notes
 
-This document separates verified SC2API behavior, verified SingularityBot implementation details, and unresolved ladder-host integration details.
+This document separates verified Blizzard protocol behavior, verified SingularityBot implementation details, and unresolved host integration details. Do not turn an unresolved detail into a launch assumption.
 
-## Verified SC2API facts
+## Verified Blizzard SC2API facts
 
-- The SC2API is a protobuf protocol over WebSockets. The game API endpoint is /sc2api.
-- The WebSocket listener address and port are configured on the SC2 process command line with -listen and -port.
-- Blizzard's protocol documentation describes multiplayer setup as launching two game instances on separate ports, designating a host, sending Request.create_game, and sending Request.join_game from both clients.
-- The SC2API protocol exposes game lifecycle status values including launched, init_game, in_game, ended, and quit.
+- SC2API is a protobuf protocol over WebSockets. Each SC2 process exposes its API at `/sc2api`; its listener address and port are configured with `-listen` and `-port`.
+- Blizzard documents multiplayer setup as **two SC2 instances with separate listener ports**.
+- One instance is designated the host and receives `Request.create_game` for a multiplayer map.
+- Both SC2 clients then receive `Request.join_game`; both joins block until both clients connect.
+- Each join request can carry a `server_ports` PortSet and one or more `client_ports` PortSets. A PortSet contains `game_port` and `base_port`. The deprecated `shared_port` field also exists.
+- SC2 reports lifecycle states including `launched`, `init_game`, `in_game`, `ended`, and `quit`.
 
-References:
+Primary references:
 - https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.md
 - https://github.com/Blizzard/s2client-proto/blob/master/s2clientprotocol/sc2api.proto
-- https://blizzard.github.io/s2client-api/classsc2_1_1_coordinator.html
+- https://github.com/Blizzard/s2client-api/blob/master/src/sc2api/sc2_coordinator.cc
 
 ## Verified SingularityBot source contract
 
 Repository: https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot, branch development.
 
-- src/SingularityBot/Program.cs treats the run as local only when no connection arguments remain. Otherwise it calls GameConnection.RunLadder.
-- src/SingularityBot.Runner/Program.cs forwards ladder arguments to the bot program. The runner is therefore the host-facing executable entry point.
-- src/SC2API.CSharp/GameConnection.cs implements RunLadder as: connect to gamePort, call JoinGameLadder(race, startPort), then enter the observation/action loop.
-- JoinGameLadder derives SC2 multiplayer port sets from the supplied start port: shared port = start + 1; server game/base ports = start + 2/+3; client game/base ports = start + 4/+5. It requests raw and score interface data.
-- StartSC2Instance launches the SC2 executable with -listen, -port, and -displayMode 0. That is used by the local-game path, not by RunLadder.
-- CreateGame creates a local game with one participant and one built-in computer opponent. It is not a two-bot match creator.
-- The ladder CLI parser accepts --GamePort / -g, --StartPort / -o, and --OpponentId. Its parser advances in name/value pairs; the server must emit only supported, correctly paired arguments.
+- `src/SingularityBot/Program.cs` treats the run as local only when no connection arguments remain. Otherwise it calls `GameConnection.RunLadder`.
+- `src/SingularityBot.Runner/Program.cs` forwards ladder arguments to the bot program. The runner is the host-facing executable entry point.
+- `GameConnection.RunLadder` connects to the supplied `gamePort`, calls `JoinGameLadder(race, startPort)`, then enters the observation/action loop.
+- Consequently, each runner's `GamePort` is the WebSocket listener of the SC2 process to which that runner connects. A two-runner match therefore requires two distinct SC2 listener endpoints/processes, not both runners pointed at one SC2 WebSocket listener.
+- `JoinGameLadder` builds a join request with `shared_port = startPort + 1`, server PortSet `(startPort + 2, startPort + 3)`, and client PortSet `(startPort + 4, startPort + 5)`. It requests raw and score interface data.
+- Both runner processes use the same `JoinGameLadder` implementation. This proves the arithmetic emitted by this bot version; it does **not** prove whether a deployed ladder host should give both runners the same start-port base or distinct bases.
+- `RunLadder` does not call `CreateGame`. Its local path launches SC2, creates a one-participant game with a built-in computer opponent, and is not the competition-host path.
+- The CLI parser accepts `--GamePort` / `-g`, `--StartPort` / `-o`, and `--OpponentId`. It advances arguments in name/value pairs. The host must emit only supported, correctly paired arguments.
 
 Source links:
 - https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot/blob/development/src/SC2API.CSharp/GameConnection.cs
@@ -32,32 +35,40 @@ Source links:
 - https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot/blob/development/src/SingularityBot/Program.cs
 - https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot/blob/development/src/SingularityBot.Runner/Program.cs
 
-## Bot runner vs simulation host
+## Required SimulationServer topology
 
-The bot's ladder path is a participant client. It does not launch the authoritative simulation, create the match, or supervise its opponent. ServerSC2 must host the simulation and launch two independent runner processes from the two immutable admitted build references. Do not call RunSinglePlayer twice: that would create two separate bot-vs-computer sessions, not a 1v1 match.
+The verified architecture is:
 
-## Unresolved topology gate
+1. ServerSC2 allocates and launches two separate SC2 processes, each with its own WebSocket listener port.
+2. One SC2 instance must be designated as the multiplayer host and receive `CreateGame` for the configured map.
+3. Each admitted SingularityBot runner connects to its assigned SC2 listener using that listener's `GamePort`.
+4. Both SC2 clients participate in the same multiplayer session using the protocol's port-set handshake.
+5. ServerSC2 observes authoritative game lifecycle/results and captures replay evidence independently of bot exit codes.
 
-The code proves the arithmetic of the StartPort bundle but does not, by itself, prove how the external ladder manager allocates and shares these ports between two bot clients. Blizzard's documented multiplayer setup also describes two SC2 instances in its client-managed workflow. Before launching real matches, verify:
+This establishes two distinct runner-to-SC2 endpoints and a host-created multiplayer game. It does not yet establish the precise sequencing/ownership of the host WebSocket connection, the mapping of the bot library's server/client PortSets to both instances, or whether the same `StartPort` base is supplied to both runners. The bot's current `RunLadder` path itself cannot perform step 2 because it only calls `JoinGameLadder`.
 
-1. whether the hosted competition topology is one shared SC2 process or two coordinated SC2 instances;
-2. which endpoint each runner connects to;
-3. whether both runners receive the same GamePort, and whether they receive the same or distinct StartPort values;
-4. which process owns CreateGame / host designation in this topology;
-5. how the server observes authoritative player results and requests/saves replay artifacts.
+## Unresolved integration gate
 
-Do not infer these details from parameter names. The current ServerSC2 port lease reserves one game port and one start-port base per match; it is not yet proven sufficient for the two-runner allocation.
+Before implementing a real process supervisor, prove these remaining details against a runnable SC2 build and the exact SingularityBot revision:
+
+1. How the host sends `CreateGame` and then permits the first bot runner to join the same SC2 instance without competing for its WebSocket connection.
+2. Whether both runners receive the same `StartPort` base, and how the host/client PortSets are interpreted by each SC2 instance.
+3. The complete collision-free port footprint per match: two SC2 listener ports plus every shared/server/client game/base port used by SC2.
+4. How the host observes both player identities/results and saves the replay after terminal state.
+5. Which process owns shutdown and how both SC2 processes and runner process trees are cleaned up after partial startup.
+
+Do not infer these details from parameter names. The existing ServerSC2 lease (one game port plus one start-port base) is insufficient for a proven two-instance allocation and must not be treated as production-safe. Keep the runtime seam injected until this gate is closed.
 
 ## Readiness and completion rules
 
 - An open TCP port or live process is not protocol readiness.
-- Each runner must complete its SC2 protocol join and be associated with the expected participant identity.
-- A match is Ready only when the authoritative simulation and both admitted runners are ready.
-- A runner exit code is not a win/loss result.
+- Both runner processes must complete their protocol joins and be associated with the expected participant identities.
+- A match is Ready only when both SC2 instances, the authoritative multiplayer game, and both admitted runners have passed their required readiness checks.
+- A runner exit code is diagnostic only; it is never a win/loss declaration.
 - A match is Completed only after SC2 reports terminal state and the host validates the player-result mapping.
 - Replay and result artifacts must be bound to match/session identity, game/map version, and both bot build hashes.
 - Ambiguous topology, missing result, mismatched identity, or partial startup fails closed.
 
 ## Implementation gate
 
-The ISc2SessionRuntime seam is the right place for the concrete SimulationServer. Implement its process supervisor only after the topology questions above are resolved. The runtime must own fixed host launch arguments, both runner process trees, protocol-level readiness, authoritative result/replay capture, and bounded cleanup.
+The `ISc2SessionRuntime` seam remains the right place for the concrete SimulationServer. Next implement a testable port-footprint model and process-supervision contracts only after the remaining handshake ownership and port-sharing questions are resolved. The runtime must own fixed host launch arguments, both SC2 process trees, both runner process trees, protocol-level readiness, authoritative result/replay capture, and bounded cleanup.
