@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 
 from sc2_probe import (
-    ProbeConfig, exchange_protocol, evaluate_version_gate, parse_args, validate_config,
+    ProbeConfig, build_create_game_request, build_join_game_request,
+    exchange_protocol, evaluate_version_gate, parse_args, validate_config,
 )
 
 
@@ -97,6 +98,63 @@ class ProtocolTransportTests(unittest.TestCase):
             base64.b64decode(event["response_protobuf_base64"]),
             b'{"type":"create_game"}',
         )
+
+
+class DescriptorBackedRequestBuilderTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from s2clientprotocol import sc2api_pb2
+        cls.protocol = sc2api_pb2
+
+    def test_create_game_uses_local_map_and_explicit_participant_count(self):
+        request = build_create_game_request(
+            self.protocol, "/trusted/maps/test.SC2Map", 2, random_seed=7
+        )
+        self.assertEqual(request.WhichOneof("request"), "create_game")
+        self.assertEqual(request.create_game.local_map.map_path, "/trusted/maps/test.SC2Map")
+        self.assertEqual(len(request.create_game.player_setup), 2)
+        self.assertTrue(all(
+            setup.type == self.protocol.Participant
+            for setup in request.create_game.player_setup
+        ))
+        self.assertEqual(request.create_game.random_seed, 7)
+        self.assertFalse(request.create_game.realtime)
+
+    def test_join_player_and_observer_modes_use_distinct_oneof_fields(self):
+        player = build_join_game_request(
+            self.protocol, race=self.protocol.Terran,
+            server_ports=(5002, 5003), client_ports=((5004, 5005),),
+        )
+        observer = build_join_game_request(
+            self.protocol, observed_player_id=0,
+        )
+        self.assertEqual(player.WhichOneof("request"), "join_game")
+        self.assertEqual(player.join_game.WhichOneof("participation"), "race")
+        self.assertEqual(player.join_game.race, self.protocol.Terran)
+        self.assertEqual(player.join_game.server_ports.game_port, 5002)
+        self.assertEqual(
+            [(p.game_port, p.base_port) for p in player.join_game.client_ports],
+            [(5004, 5005)],
+        )
+        self.assertEqual(observer.join_game.WhichOneof("participation"), "observed_player_id")
+        self.assertEqual(observer.join_game.observed_player_id, 0)
+        self.assertFalse(observer.join_game.HasField("server_ports"))
+        self.assertEqual(len(observer.join_game.client_ports), 0)
+
+    def test_join_builder_rejects_ambiguous_participation_and_overlapping_ports(self):
+        with self.assertRaises(ValueError):
+            build_join_game_request(self.protocol)
+        with self.assertRaises(ValueError):
+            build_join_game_request(
+                self.protocol, race=self.protocol.Terran,
+                server_ports=(5002, 5003), client_ports=((5003, 5004),),
+            )
+
+    def test_create_game_rejects_invalid_inputs(self):
+        with self.assertRaises(ValueError):
+            build_create_game_request(self.protocol, " ", 2)
+        with self.assertRaises(ValueError):
+            build_create_game_request(self.protocol, "map.SC2Map", 0)
 
 
 class ProbePreflightTests(unittest.TestCase):
