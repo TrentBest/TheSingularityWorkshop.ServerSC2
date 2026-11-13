@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -75,7 +76,48 @@ def write_manifest(path: Path, manifest: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
-def ping_process(port: int, timeout: float, log_path: Path) -> dict[str, Any]:
+def exchange_protocol(
+    connection: Any,
+    request: Any,
+    response: Any,
+    expected_response_type: str,
+    timeout: float,
+) -> tuple[Any, dict[str, Any]]:
+    """Send one SC2API request and capture its ordered protobuf exchange."""
+    request_type = request.WhichOneof("request")
+    if not request_type:
+        raise RuntimeError("SC2API request has no selected request payload")
+    request_bytes = request.SerializeToString()
+    connection.settimeout(timeout)
+    sent_utc = utc_now()
+    connection.send_binary(request_bytes)
+    response_bytes = connection.recv()
+    received_utc = utc_now()
+    response.ParseFromString(response_bytes)
+    response_type = response.WhichOneof("response")
+    event = {
+        "transport": "websocket",
+        "request_type": request_type,
+        "response_type": response_type,
+        "expected_response_type": expected_response_type,
+        "response_type_matches": response_type == expected_response_type,
+        "sent_utc": sent_utc,
+        "received_utc": received_utc,
+        "correlation": "SC2API responses are returned in request order; this exchange has one outstanding request",
+        "request_protobuf_base64": base64.b64encode(request_bytes).decode("ascii"),
+        "response_protobuf_base64": base64.b64encode(response_bytes).decode("ascii"),
+    }
+    if response_type != expected_response_type:
+        raise RuntimeError(
+            f"SC2API returned response '{response_type}' for request '{request_type}'; "
+            f"expected '{expected_response_type}'"
+        )
+    return response, event
+
+
+def ping_process(
+    port: int, timeout: float, log_path: Path
+) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         from s2clientprotocol import sc2api_pb2
         from websocket import create_connection
@@ -92,11 +134,9 @@ def ping_process(port: int, timeout: float, log_path: Path) -> dict[str, Any]:
     try:
         request = sc2api_pb2.Request()
         request.ping.SetInParent()
-        connection.send_binary(request.SerializeToString())
-        response = sc2api_pb2.Response()
-        response.ParseFromString(connection.recv())
-        if response.WhichOneof("response") != "ping":
-            raise RuntimeError(f"SC2 listener {port} returned a non-ping response")
+        response, exchange = exchange_protocol(
+            connection, request, sc2api_pb2.Response(), "ping", timeout
+        )
         ping = response.ping
         result = {
             "game_version": ping.game_version,
@@ -106,7 +146,7 @@ def ping_process(port: int, timeout: float, log_path: Path) -> dict[str, Any]:
         }
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-        return result
+        return result, exchange
     finally:
         connection.close()
 
@@ -156,6 +196,7 @@ def run_probe(config: ProbeConfig) -> int:
         "gates": {},
         "processes": [],
         "protocol": {},
+        "protocol_exchanges": [],
         "cleanup": {"complete": False, "processes": []},
         "status": "failed",
     }
@@ -209,10 +250,14 @@ def run_probe(config: ProbeConfig) -> int:
                 if process.poll() is not None:
                     raise RuntimeError(f"{role} SC2 process exited early with code {process.returncode}")
                 try:
-                    ping_result = ping_process(
+                    ping_result, exchange = ping_process(
                         port, min(5.0, config.startup_timeout),
                         config.output_dir / f"{role}.ping.json",
                     )
+                    manifest["protocol_exchanges"].append({
+                        "role": role,
+                        **exchange,
+                    })
                     break
                 except Exception as exc:  # bounded retry while SC2 initializes its listener
                     last_error = str(exc)
