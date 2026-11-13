@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sc2_probe import (
     ProbeConfig, build_create_game_request, build_join_game_request,
-    exchange_protocol, evaluate_version_gate, parse_args, validate_config,
+    exchange_protocol, evaluate_setup_response, evaluate_version_gate, parse_args, validate_config,
 )
 
 
@@ -155,6 +155,39 @@ class DescriptorBackedRequestBuilderTests(unittest.TestCase):
             build_create_game_request(self.protocol, " ", 2)
         with self.assertRaises(ValueError):
             build_create_game_request(self.protocol, "map.SC2Map", 0)
+
+
+class DescriptorBackedSetupResponseTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from s2clientprotocol import sc2api_pb2
+        cls.protocol = sc2api_pb2
+
+    def test_create_game_response_rejects_payload_error(self):
+        response = self.protocol.Response()
+        response.create_game.error = self.protocol.ResponseCreateGame.MultiplayerUnsupported
+        result = evaluate_setup_response(response, "create_game")
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["payload_error_name"], "MultiplayerUnsupported")
+
+    def test_join_game_requires_player_id_acknowledgement(self):
+        response = self.protocol.Response()
+        response.join_game.SetInParent()
+        self.assertFalse(evaluate_setup_response(response, "join_game")["passed"])
+        response.join_game.player_id = 2
+        result = evaluate_setup_response(response, "join_game")
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["join_player_id"], 2)
+
+    def test_envelope_errors_and_wrong_response_type_fail_closed(self):
+        response = self.protocol.Response()
+        response.create_game.SetInParent()
+        response.error.append("setup warning/error reported by server")
+        self.assertFalse(evaluate_setup_response(response, "create_game")["passed"])
+        clean = self.protocol.Response()
+        clean.ping.SetInParent()
+        self.assertFalse(evaluate_setup_response(clean, "create_game")["passed"])
+
 
 
 class ProbePreflightTests(unittest.TestCase):
