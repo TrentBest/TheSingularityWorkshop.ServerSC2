@@ -15,7 +15,9 @@ var checks = new (string Name, Action Run)[]
     ("adapter maps immutable ServerApp assignments", AdapterMapsAssignment),
     ("adapter rejects mismatched observed match identity", AdapterRejectsMismatchedObservedMatch),
     ("adapter rejects wrong game before allocating ports", AdapterRejectsWrongGame),
-    ("adapter releases a lease when runtime startup fails", AdapterReleasesOnStartupFailure)
+    ("adapter releases a lease when runtime startup fails", AdapterReleasesOnStartupFailure),
+    ("observer process plan isolates CreateGame authority", ObserverPlanIsolatesCreateGame),
+    ("observer process plan scales to arbitrary participant counts", ObserverPlanScales)
 };
 
 var failures = new List<string>();
@@ -145,6 +147,64 @@ static void LeaseDisposalIsIdempotent()
     lease!.Dispose();
     lease.Dispose();
     Assert(pool.ActiveLeaseCount == 0, "Lease was not released exactly once.");
+}
+
+
+static Sc2SessionLaunchRequest ObserverLaunchRequest(int participantCount)
+{
+    var participants = Enumerable.Range(0, participantCount)
+        .Select(index => new Sc2ParticipantLaunch(
+            $"p{index + 1}",
+            $"team-{index / 2 + 1}",
+            new BotBuildReference($"bot-{index + 1}", $"build-{index + 1}", new string((char)('a' + index), 64)),
+            5000 + index,
+            false))
+        .ToArray();
+    return new Sc2SessionLaunchRequest(
+        "match-observer", "session-observer", "0.1.0", "5.0.14", "AbyssalReefLE",
+        6000, Array.AsReadOnly(participants));
+}
+
+static void ObserverPlanIsolatesCreateGame()
+{
+    var plan = Sc2MatchProcessPlan.Create(ObserverLaunchRequest(2));
+    Assert(plan.Sc2Clients.Count == 3, "Expected one observer and two participant SC2 clients.");
+    Assert(plan.BotRunners.Count == 2, "Expected one bot runner per participant.");
+    Assert(plan.Sc2Clients.Count(client => client.Role == Sc2ProcessRole.Observer) == 1,
+        "Expected exactly one observer process.");
+    Assert(plan.Sc2Clients.Count(client => client.HasCreateGameAuthority) == 1,
+        "Expected exactly one CreateGame authority.");
+    var observer = plan.Sc2Clients.Single(client => client.Role == Sc2ProcessRole.Observer);
+    Assert(observer.ParticipantId is null && observer.GamePort is null && observer.HasCreateGameAuthority,
+        "Observer must be neutral and exclusively own CreateGame authority.");
+    Assert(plan.Sc2Clients.Where(client => client.Role == Sc2ProcessRole.Participant)
+        .All(client => !client.HasCreateGameAuthority && client.ParticipantId is not null && client.GamePort is not null),
+        "Participant SC2 clients must have identity/listener ports and no CreateGame authority.");
+}
+
+static void ObserverPlanScales()
+{
+    for (var count = 2; count <= 8; count++)
+    {
+        var plan = Sc2MatchProcessPlan.Create(ObserverLaunchRequest(count));
+        Assert(plan.Sc2Clients.Count == count + 1, $"Expected {count + 1} SC2 clients for {count} participants.");
+        Assert(plan.BotRunners.Count == count, $"Expected {count} runners for {count} participants.");
+        Assert(plan.Sc2Clients.Select(client => client.ClientOrdinal).Distinct().Count() == count + 1,
+            "SC2 client ordinals must be unique.");
+    }
+
+    var invalid = ObserverLaunchRequest(2);
+    var participantWithAuthority = invalid with
+    {
+        Participants = Array.AsReadOnly(invalid.Participants.Select((participant, index) =>
+            index == 0 ? participant with { IsGameHost = true } : participant).ToArray())
+    };
+    try
+    {
+        Sc2MatchProcessPlan.Create(participantWithAuthority);
+        throw new InvalidOperationException("Expected participant CreateGame authority to be rejected.");
+    }
+    catch (InvalidOperationException exception) when (exception.Message.Contains("cannot own CreateGame", StringComparison.Ordinal)) { }
 }
 
 static void Assert(bool condition, string message)
