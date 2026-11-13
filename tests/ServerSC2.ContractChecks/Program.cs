@@ -61,7 +61,7 @@ File.WriteAllText(reportPath, JsonSerializer.Serialize(report, new JsonSerialize
 {
     WriteIndented = true
 }));
-Console.WriteLine($"{report.Passed}/{report.Total} checks passed. Machine-readable report: {reportPath}");
+Console.WriteLine($"{report.passed}/{report.Total} checks passed. Machine-readable report: {reportPath}");
 return failures.Count == 0 ? 0 : 1;
 
 
