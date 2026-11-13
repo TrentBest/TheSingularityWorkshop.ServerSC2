@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sc2_probe import (
     ProbeConfig, build_create_game_request, build_join_game_request,
-    exchange_protocol, evaluate_setup_response, evaluate_version_gate, parse_args, validate_config,
+    exchange_protocol, evaluate_setup_response, evaluate_version_gate, perform_setup_exchange, parse_args, validate_config,
 )
 
 
@@ -179,6 +179,34 @@ class DescriptorBackedSetupResponseTests(unittest.TestCase):
         result = evaluate_setup_response(response, "join_game")
         self.assertTrue(result["passed"])
         self.assertEqual(result["join_player_id"], 2)
+
+    def test_failed_setup_exchange_is_persisted_before_gate_raises(self):
+        request = self.protocol.Request()
+        request.create_game.SetInParent()
+        response = self.protocol.Response()
+        response.create_game.error = self.protocol.ResponseCreateGame.MultiplayerUnsupported
+        response_bytes = response.SerializeToString()
+        socket = FakeSocket(response_bytes)
+        manifest = {"gates": {}, "protocol_exchanges": []}
+        with tempfile.TemporaryDirectory() as directory:
+            evidence_path = Path(directory) / "evidence.json"
+            with self.assertRaises(RuntimeError):
+                perform_setup_exchange(
+                    socket, request, self.protocol.Response(), "create_game", 1.0,
+                    role="observer", gate_name="create_game",
+                    manifest=manifest, manifest_path=evidence_path,
+                )
+            saved = json.loads(evidence_path.read_text(encoding="utf-8"))
+        self.assertFalse(saved["gates"]["create_game"]["passed"])
+        self.assertEqual(len(saved["protocol_exchanges"]), 1)
+        event = saved["protocol_exchanges"][0]
+        self.assertEqual(event["role"], "observer")
+        self.assertEqual(
+            base64.b64decode(event["response_protobuf_base64"]), response_bytes
+        )
+        self.assertEqual(
+            event["setup_gate"]["payload_error_name"], "MultiplayerUnsupported"
+        )
 
     def test_envelope_errors_and_wrong_response_type_fail_closed(self):
         response = self.protocol.Response()
