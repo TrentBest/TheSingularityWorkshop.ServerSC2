@@ -69,7 +69,7 @@ public sealed record Sc2MatchProcessPlan(
             throw new InvalidOperationException("The match-level StartPort cannot reserve the observer and participant multiplayer port block.");
 
         var multiplayerPortLast = request.StartPort + multiplayerPortCount - 1;
-        if (request.Participants.Any(p => p.GamePort >= request.StartPort && p.GamePort <= multiplayerPortLast))
+        if (participants.Any(p => p.GamePort >= request.StartPort && p.GamePort <= multiplayerPortLast))
             throw new InvalidOperationException("Participant listener ports cannot overlap the match multiplayer port block.");
 
         var clients = new List<Sc2ClientProcessPlan>(participants.Length + 1)
