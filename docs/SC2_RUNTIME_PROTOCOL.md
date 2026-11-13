@@ -10,6 +10,8 @@ This document separates verified Blizzard protocol behavior, source-inspected bo
 - A join request can carry a `server_ports` PortSet and one or more `client_ports` PortSets. A PortSet contains `game_port` and `base_port`. The deprecated `shared_port` field also exists.
 - `RequestJoinGame` supports player participation through `race` and observer participation through `observed_player_id`. Observer actions are a separate request type from player actions.
 - SC2 reports lifecycle states including `launched`, `init_game`, `in_game`, `ended`, and `quit`.
+- `RequestJoinGame` has distinct player (`race`) and observer (`observed_player_id`) participation modes. `ResponseObservation` can include terminal `player_result` records when the game ends during that observation step.
+- `RequestSaveReplay` returns replay bytes, and `RequestReplayInfo` can inspect replay metadata including map, game version/build, and player results. These are candidate observer evidence sources; their behavior and availability in the target lifecycle still require live validation.
 
 These facts establish protocol capabilities, not that the exact observer-host sequence or port layout works on a particular pinned game build.
 
