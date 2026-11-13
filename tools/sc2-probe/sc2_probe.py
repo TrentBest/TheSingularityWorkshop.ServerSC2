@@ -60,6 +60,21 @@ def validate_config(config: ProbeConfig) -> list[str]:
             errors.append("Setup sequence requires explicit races for both players")
         if config.player_port_sets is None or set(config.player_port_sets) != {"player-1", "player-2"}:
             errors.append("Setup sequence requires explicit PortSets for both players")
+        elif config.player_port_sets is not None:
+            flattened: list[int] = []
+            try:
+                for role in ("player-1", "player-2"):
+                    ports = config.player_port_sets[role]
+                    pairs = [ports["server_ports"], *ports.get("client_ports", ())]
+                    if any(len(pair) != 2 for pair in pairs):
+                        raise ValueError("PortSet pairs must contain exactly two ports")
+                    flattened.extend(port for pair in pairs for port in pair)
+                if any(not 1 <= port <= 65535 for port in flattened):
+                    errors.append("Every explicit setup port must be between 1 and 65535")
+                if len(flattened) != len(set(flattened)):
+                    errors.append("Explicit setup PortSets overlap across players or within a player")
+            except (KeyError, TypeError, ValueError):
+                errors.append("Setup sequence requires valid explicit server/client PortSet pairs")
     ports = range(config.base_port, config.base_port + 3)
     if len(set(ports)) != 3:
         errors.append("SC2 listener ports overlap")
@@ -231,6 +246,7 @@ def run_observer_setup_sequence(
     if timeout <= 0:
         raise ValueError("Setup exchange timeout must be positive")
 
+    initial_exchange_count = len(manifest.get("protocol_exchanges", ()))
     steps = [
         {"ordinal": 1, "role": "observer", "request": "create_game"},
         {"ordinal": 2, "role": "observer", "request": "join_game", "participation": "observed_player_id"},
@@ -295,7 +311,7 @@ def run_observer_setup_sequence(
         manifest["setup_sequence"]["error"] = str(exc)
         manifest["setup_sequence"]["failed_step_count"] = len(
             manifest.get("protocol_exchanges", ())
-        )
+        ) - initial_exchange_count
         write_manifest(manifest_path, manifest)
         raise
 
