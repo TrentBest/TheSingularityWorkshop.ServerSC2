@@ -322,7 +322,7 @@ def run_observer_setup_sequence(
             raise RuntimeError("SC2 acknowledged duplicate player IDs for the two player connections")
     except Exception as exc:
         manifest["setup_sequence"]["error"] = str(exc)
-        manifest["setup_sequence"]["failed_step_count"] = len(
+        manifest["setup_sequence"]["exchange_count_at_failure"] = len(
             manifest.get("protocol_exchanges", ())
         ) - initial_exchange_count
         write_manifest(manifest_path, manifest)
