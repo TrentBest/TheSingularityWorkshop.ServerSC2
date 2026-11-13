@@ -91,7 +91,7 @@ The current bootstrap implementation is deliberately narrower than the full acce
 
 - no SC2 process starts unless `--execute` is supplied;
 - executable, installation directory, trusted map file, expected game version, output directory, listener-port availability, and positive timeouts are preflighted;
-- it launches three isolated local SC2 processes (observer candidate plus two player candidates), sends a protobuf RequestPing to each `/sc2api` endpoint, and records returned version/build metadata;
+- it launches three isolated local SC2 processes (observer candidate plus two player candidates), sends a protobuf RequestPing to each `/sc2api` endpoint, and records returned version/build metadata; the version gate requires all three to match the expected game-version string and report the same complete `(game_version, data_version, data_build, base_build)` fingerprint;
 - it writes a versioned `evidence.json`, per-role ping metadata, and stdout/stderr logs;
 - cleanup is bounded and attempts to terminate process groups/process trees.
 
