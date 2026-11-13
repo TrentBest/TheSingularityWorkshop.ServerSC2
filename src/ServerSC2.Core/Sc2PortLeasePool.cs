@@ -1,8 +1,8 @@
 namespace ServerSC2.Core;
 
 /// <summary>
-/// A process-local lease for two SC2 listener ports and one shared multiplayer port block.
-/// StartPort is a match-level base; ports StartPort+1 through StartPort+5 belong to this match.
+/// A process-local lease for one match's participant listener ports and a sized
+/// SC2 multiplayer port block. This is not an OS-level socket reservation.
 /// </summary>
 public sealed class Sc2PortLease : IDisposable
 {
@@ -10,35 +10,37 @@ public sealed class Sc2PortLease : IDisposable
 
     internal Sc2PortLease(
         Guid leaseId,
-        int hostGamePort,
-        int joinerGamePort,
+        IReadOnlyList<int> participantGamePorts,
         int startPort,
+        int multiplayerPortCount,
         Action<Guid> release)
     {
         LeaseId = leaseId;
-        HostGamePort = hostGamePort;
-        JoinerGamePort = joinerGamePort;
+        ParticipantGamePorts = Array.AsReadOnly(participantGamePorts.ToArray());
         StartPort = startPort;
+        MultiplayerPortCount = multiplayerPortCount;
         _release = release;
     }
 
     public Guid LeaseId { get; }
-    public int HostGamePort { get; }
-    public int JoinerGamePort { get; }
+    public IReadOnlyList<int> ParticipantGamePorts { get; }
     public int StartPort { get; }
+    public int MultiplayerPortCount { get; }
+
+    // Compatibility accessors for the existing two-participant runtime.
+    public int HostGamePort => ParticipantGamePorts[0];
+    public int JoinerGamePort => ParticipantGamePorts[1];
 
     public void Dispose() => Interlocked.Exchange(ref _release, null)?.Invoke(LeaseId);
 }
 
 /// <summary>
-/// Atomically allocates two distinct listener ports and a shared five-port multiplayer block
-/// for each match. This protects concurrent sessions within this host process; it is not an
-/// OS-level socket reservation.
+/// Atomically allocates a variable number of participant listener ports and a
+/// multiplayer block sized for the profile's maximum match format. Leases are
+/// process-local; they do not reserve operating-system sockets.
 /// </summary>
 public sealed class Sc2PortLeasePool
 {
-    private const int MultiplayerPortStride = 6;
-
     private readonly object _gate = new();
     private readonly Sc2ServerProfile _profile;
     private readonly Dictionary<Guid, int> _leases = new();
@@ -57,8 +59,14 @@ public sealed class Sc2PortLeasePool
         get { lock (_gate) return _leases.Count; }
     }
 
-    public bool TryAcquire(out Sc2PortLease? lease)
+    public bool TryAcquire(out Sc2PortLease? lease) =>
+        TryAcquire(_profile.MaximumParticipantsPerMatch, out lease);
+
+    public bool TryAcquire(int participantCount, out Sc2PortLease? lease)
     {
+        if (participantCount is < 2 || participantCount > _profile.MaximumParticipantsPerMatch)
+            throw new ArgumentOutOfRangeException(nameof(participantCount));
+
         lock (_gate)
         {
             if (_leases.Count >= _profile.MaximumConcurrentMatches)
@@ -73,13 +81,14 @@ public sealed class Sc2PortLeasePool
                 if (usedSlots.Contains(slot))
                     continue;
 
+                var firstGamePort = checked(_profile.GamePortFirst + slot * _profile.MaximumParticipantsPerMatch);
+                var gamePorts = Enumerable.Range(firstGamePort, participantCount).ToArray();
+                var startPort = checked(_profile.StartPortFirst + slot * _profile.MultiplayerPortStride);
                 var leaseId = Guid.NewGuid();
-                var hostGamePort = checked(_profile.GamePortFirst + slot * 2);
-                var joinerGamePort = checked(hostGamePort + 1);
-                var startPort = checked(_profile.StartPortFirst + slot * MultiplayerPortStride);
 
                 _leases.Add(leaseId, slot);
-                lease = new Sc2PortLease(leaseId, hostGamePort, joinerGamePort, startPort, Release);
+                lease = new Sc2PortLease(
+                    leaseId, gamePorts, startPort, _profile.MultiplayerPortCount, Release);
                 return true;
             }
 
