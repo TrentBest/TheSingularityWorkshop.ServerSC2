@@ -158,6 +158,39 @@ def evaluate_setup_response(response: Any, expected_response_type: str) -> dict[
     }
 
 
+
+def perform_setup_exchange(
+    connection: Any,
+    request: Any,
+    response: Any,
+    expected_response_type: str,
+    timeout: float,
+    *,
+    role: str,
+    gate_name: str,
+    manifest: dict[str, Any],
+    manifest_path: Path,
+) -> tuple[Any, dict[str, Any]]:
+    """Exchange one setup request, durably record evidence, then enforce its gate."""
+    result, event = exchange_protocol(
+        connection, request, response, expected_response_type, timeout
+    )
+    gate = evaluate_setup_response(result, expected_response_type)
+    event["role"] = role
+    event["setup_gate"] = gate
+    manifest.setdefault("protocol_exchanges", []).append(event)
+    manifest.setdefault("gates", {})[gate_name] = gate
+    # Persist the raw exchange and evaluated gate before raising on failure.
+    write_manifest(manifest_path, manifest)
+    if not gate["passed"]:
+        raise RuntimeError(
+            f"{role} SC2API setup gate '{gate_name}' failed: "
+            f"expected {expected_response_type}, received {gate['response_type']}"
+        )
+    return result, gate
+
+
+
 def build_create_game_request(
     sc2api_pb2: Any,
     map_path: str,
