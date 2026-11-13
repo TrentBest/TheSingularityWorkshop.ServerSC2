@@ -24,13 +24,13 @@ Only trusted host configuration may choose the SC2 installation, maps, runtime r
 
 Work on development. Keep master aligned with the last released state; do not publish, merge, release, or deploy without explicit authorization.
 
-The current foundation includes validated server profiles, an atomic two-listener/shared-multiplayer-port lease for each 1v1 match, and a ServerApp IGameSessionAdapter bridge with typed per-participant listener and host-role assignments. The bridge is wired to an injected ISc2SessionRuntime contract; the concrete SimulationServer process supervisor and two-runner launcher are not implemented yet. Port leases prevent collisions among this host's own concurrent matches; they are not OS-level socket reservations.
+The current foundation includes validated server profiles, an atomic two-listener/shared-multiplayer-port lease for each 1v1 match, a ServerApp IGameSessionAdapter bridge with typed host/listener assignments, and an initial process supervisor that launches two SC2 instances plus two immutable-build runner executables. The supervisor waits for both structured join acknowledgements and observes terminal result markers. The trusted artifact resolver and live-SC2, result/replay, and cleanup proofs remain outstanding. Port leases prevent collisions among this host process's own concurrent matches; they are not OS-level socket reservations.
 
 See [the architecture](docs/ARCHITECTURE.md), [SimulationServer orchestration](docs/SIMULATION_SERVER.md), [SC2 runtime protocol notes](docs/SC2_RUNTIME_PROTOCOL.md), and [the pause point](docs/PAUSE_POINT.md).
 
 ## Status
 
-Next: implement the trusted SC2 process supervisor, launch both admitted bot builds against their assigned SC2 listeners, verify protocol readiness, and capture authoritative replay/result evidence. A submission queue and cup progression remain later ServerApp competition-policy work; they are not prerequisites for proving a local 1v1 match.
+Next: wire the trusted immutable-build artifact resolver, prove the two-runner handshake against live SC2, correlate player/result identities, and capture authoritative replay/result evidence. A submission queue and cup progression remain later ServerApp competition-policy work; they are not prerequisites for proving a local 1v1 match.
 
 ---
 
