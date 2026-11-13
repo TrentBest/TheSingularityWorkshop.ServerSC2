@@ -186,3 +186,25 @@ The pinned-schema tests cover CreateGame's `MultiplayerUnsupported` error, missi
 The probe now has a setup-exchange wrapper that sends one request, evaluates the structured setup response, appends the role-tagged raw protobuf exchange and gate result to the evidence manifest, and writes the manifest before raising on a failed gate. A failed CreateGame or JoinGame acknowledgement therefore remains auditable rather than disappearing behind an exception.
 
 The CI test injects a CreateGame MultiplayerUnsupported response and verifies that the failed gate, payload error name, and exact response bytes are present in the written evidence file before the wrapper raises. This is a local persistence/validation test only; the wrapper is not yet wired to a live SC2 process and does not establish setup acceptance or observer topology.
+
+## Explicit observer setup sequence
+
+The opt-in probe now exposes a separately testable candidate setup orchestrator. It sends
+CreateGame only through the observer connection, then attempts the observer JoinGame
+using an explicitly supplied observed-player ID, then joins player-1 and player-2 using
+explicit race and PortSet inputs. The orchestrator does not calculate or infer any port
+layout, player identity, or race. It records the complete proposed sequence and inputs
+before sending requests, and each raw request/response exchange plus its structured
+acknowledgement gate is durably written before the next step.
+
+The sequence stops at the first failed gate. In particular, a rejected observer join
+prevents either player join and leaves the failed response bytes and SC2 error in the
+manifest. CI exercises both a fully acknowledged fake exchange sequence and an
+observer-join FeatureUnsupported failure, including proof that player connections
+were not contacted.
+
+This is only a candidate request sequence and deterministic orchestration test. It is
+not wired into the live process bootstrap, does not establish that observer-hosted
+CreateGame or multiple clients are supported by a target SC2 build, and does not
+validate observer information isolation, authoritative match results, or replay
+evidence. The live proof gate remains mandatory before production runtime changes.
