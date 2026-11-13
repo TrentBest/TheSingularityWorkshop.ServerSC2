@@ -7,7 +7,7 @@ from pathlib import Path
 from sc2_probe import (
     ProbeConfig, build_create_game_request, build_join_game_request,
     exchange_protocol, evaluate_setup_response, evaluate_version_gate, perform_setup_exchange,
-    run_observer_setup_sequence, parse_args, validate_config,
+    run_observer_setup_sequence, parse_args, parse_port_pair, validate_config,
 )
 
 
@@ -324,6 +324,44 @@ class DescriptorBackedSetupResponseTests(unittest.TestCase):
 
 
 class ProbePreflightTests(unittest.TestCase):
+    def test_setup_sequence_is_separately_opt_in(self):
+        self.assertFalse(parse_args([]).setup_sequence)
+        self.assertTrue(parse_args(["--setup-sequence"]).setup_sequence)
+
+    def test_explicit_port_pair_parser_rejects_ambiguous_or_invalid_values(self):
+        self.assertEqual(parse_port_pair("5002, 5003"), (5002, 5003))
+        for value in ("5002", "5002,5002", "0,5003", "5002,70000", "a,5003"):
+            with self.subTest(value=value), self.assertRaises(Exception):
+                parse_port_pair(value)
+
+    def test_setup_sequence_preflight_requires_all_explicit_inputs_and_disjoint_ports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "SC2.exe"
+            install = root / "install"
+            map_path = root / "map.SC2Map"
+            executable.write_bytes(b"")
+            install.mkdir()
+            map_path.write_bytes(b"map")
+            base = dict(
+                executable=executable, install_dir=install, map_path=map_path,
+                output_dir=root / "out", expected_version="5.0.17", base_port=5000,
+                startup_timeout=30, shutdown_timeout=10, setup_sequence=True,
+            )
+            missing = validate_config(ProbeConfig(**base))
+            self.assertTrue(any("observer player ID" in error for error in missing))
+            valid = dict(
+                **base, observer_player_id=0,
+                player_races={"player-1": 1, "player-2": 2},
+                player_port_sets={
+                    "player-1": {"server_ports": (5100, 5101), "client_ports": ((5102, 5103),)},
+                    "player-2": {"server_ports": (5104, 5105), "client_ports": ((5106, 5107),)},
+                },
+            )
+            self.assertFalse(validate_config(ProbeConfig(**valid)))
+            valid["player_port_sets"]["player-2"]["server_ports"] = (5102, 5105)
+            self.assertTrue(any("overlap" in error for error in validate_config(ProbeConfig(**valid))))
+
     def test_execution_is_opt_in(self):
         args = parse_args([])
         self.assertFalse(args.execute)
