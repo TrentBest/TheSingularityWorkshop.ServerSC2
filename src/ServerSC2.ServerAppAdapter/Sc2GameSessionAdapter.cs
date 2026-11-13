@@ -58,8 +58,9 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
 {
     public const string StarCraftIIGameId = "starcraft-ii";
 
-    private sealed class ActiveSession(string sessionId, Sc2PortLease lease)
+    private sealed class ActiveSession(string matchId, string sessionId, Sc2PortLease lease)
     {
+        public string MatchId { get; } = matchId;
         public string SessionId { get; } = sessionId;
         public Sc2PortLease Lease { get; } = lease;
         public SemaphoreSlim Gate { get; } = new(1, 1);
@@ -126,7 +127,7 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
         if (!_ports.TryAcquire(out var lease) || lease is null)
             throw new InvalidOperationException("The SC2 host has reached its configured concurrent-match capacity.");
 
-        var active = new ActiveSession(request.SessionId, lease);
+        var active = new ActiveSession(assignment.MatchId, request.SessionId, lease);
         lock (_sessionsGate)
         {
             if (_disposed || !_sessions.TryAdd(request.SessionId, active))
@@ -202,7 +203,7 @@ public sealed class Sc2GameSessionAdapter : IGameSessionAdapter, IAsyncDisposabl
             if (observed is null)
                 return null;
 
-            var snapshot = ValidateAndTranslate(observed, observed.MatchId, sessionId);
+            var snapshot = ValidateAndTranslate(observed, active.MatchId, sessionId);
             if (snapshot.State is GameSessionState.Completed or GameSessionState.Failed or GameSessionState.Aborted)
                 await StopAndReleaseAsync(sessionId, active).ConfigureAwait(false);
             return snapshot;
