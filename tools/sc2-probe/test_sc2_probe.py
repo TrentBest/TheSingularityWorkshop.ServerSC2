@@ -1,8 +1,74 @@
+import base64
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from sc2_probe import ProbeConfig, evaluate_version_gate, parse_args, validate_config
+from sc2_probe import (
+    ProbeConfig, exchange_protocol, evaluate_version_gate, parse_args, validate_config,
+)
+
+
+
+class FakeRequest:
+    def WhichOneof(self, name):
+        return "ping" if name == "request" else None
+
+    def SerializeToString(self):
+        return b"request-ping"
+
+
+class FakeResponse:
+    def __init__(self):
+        self.payload = None
+
+    def ParseFromString(self, payload):
+        self.payload = json.loads(payload.decode("utf-8"))
+
+    def WhichOneof(self, name):
+        return self.payload.get("type") if name == "response" else None
+
+
+class FakeSocket:
+    def __init__(self, response):
+        self.response = response
+        self.timeout = None
+        self.sent = None
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
+
+    def send_binary(self, payload):
+        self.sent = payload
+
+    def recv(self):
+        return self.response
+
+
+class ProtocolTransportTests(unittest.TestCase):
+    def test_exchange_records_types_timeout_timestamps_and_raw_protobuf(self):
+        socket = FakeSocket(b'{"type":"ping"}')
+        response, event = exchange_protocol(
+            socket, FakeRequest(), FakeResponse(), "ping", 2.5
+        )
+        self.assertEqual(response.payload["type"], "ping")
+        self.assertEqual(socket.timeout, 2.5)
+        self.assertEqual(socket.sent, b"request-ping")
+        self.assertEqual(event["request_type"], "ping")
+        self.assertEqual(event["response_type"], "ping")
+        self.assertTrue(event["response_type_matches"])
+        self.assertEqual(
+            base64.b64decode(event["request_protobuf_base64"]), b"request-ping"
+        )
+        self.assertTrue(event["sent_utc"])
+        self.assertTrue(event["received_utc"])
+
+    def test_exchange_rejects_unexpected_response_type(self):
+        socket = FakeSocket(b'{"type":"create_game"}')
+        with self.assertRaisesRegex(RuntimeError, "expected 'ping'"):
+            exchange_protocol(
+                socket, FakeRequest(), FakeResponse(), "ping", 1.0
+            )
 
 
 class ProbePreflightTests(unittest.TestCase):
