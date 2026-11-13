@@ -12,6 +12,9 @@ public sealed record Sc2ServerProfile(
     int StartPortLast,
     int MaximumConcurrentMatches)
 {
+    private const int MultiplayerPortSpan = 5;
+    private const int MultiplayerPortStride = MultiplayerPortSpan + 1;
+
     public IReadOnlyList<string> Validate()
     {
         var errors = new List<string>();
@@ -23,16 +26,28 @@ public sealed record Sc2ServerProfile(
         ValidateRange(GamePortFirst, GamePortLast, "game", errors);
         ValidateRange(StartPortFirst, StartPortLast, "start", errors);
 
-        if (GamePortFirst <= StartPortLast && StartPortFirst <= GamePortLast)
-            errors.Add("profile.port-ranges.overlap");
+        if (StartPortLast is >= 1 and <= 65535 && StartPortLast > 65535 - MultiplayerPortSpan)
+            errors.Add("profile.start-port-footprint.exceeds-range");
+
+        if (GamePortFirst is >= 1 and <= 65535 &&
+            StartPortFirst is >= 1 and <= 65535 &&
+            StartPortLast is >= StartPortFirst and <= 65535)
+        {
+            var multiplayerFirst = StartPortFirst + 1;
+            var multiplayerLast = Math.Min(65535, StartPortLast + MultiplayerPortSpan);
+            if (GamePortFirst <= multiplayerLast && multiplayerFirst <= GamePortLast)
+                errors.Add("profile.port-ranges.overlap");
+        }
 
         if (MaximumConcurrentMatches <= 0)
             errors.Add("profile.concurrency.invalid");
         else
         {
             var gameCapacity = (long)GamePortLast - GamePortFirst + 1;
-            var startCapacity = (long)StartPortLast - StartPortFirst + 1;
-            if (gameCapacity < MaximumConcurrentMatches)
+            var startCapacity = StartPortFirst <= StartPortLast
+                ? ((long)StartPortLast - StartPortFirst) / MultiplayerPortStride + 1
+                : 0;
+            if (gameCapacity < (long)MaximumConcurrentMatches * 2)
                 errors.Add("profile.game-port-capacity.insufficient");
             if (startCapacity < MaximumConcurrentMatches)
                 errors.Add("profile.start-port-capacity.insufficient");
