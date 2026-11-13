@@ -34,6 +34,9 @@ public sealed record Sc2MatchProcessPlan(
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.MatchId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SessionId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.AdapterVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.GameVersion);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.MapId);
 
         if (request.Participants is null || request.Participants.Count is < 2 or > 64)
             throw new InvalidOperationException("An observer-hosted SC2 match requires between 2 and 64 participants.");
