@@ -8,7 +8,7 @@
 - `Sc2ProcessSessionRuntime` is the concrete `ISc2SessionRuntime` process supervisor. It launches two SC2 instances and two admitted runner executables, waits for both structured join acknowledgements, observes both terminal result markers, and owns process-tree cleanup.
 - `ISc2BotRunnerResolver` is the trusted artifact-resolution boundary. Its implementation must resolve immutable build IDs and verify each artifact against its admitted SHA-256; this repository does not yet provide the artifact store/resolver.
 - The intended runtime is a SimulationServer hosting one authoritative multiplayer match through two separate SC2 instances, with two independently launched SingularityBot runners.
-- Contract checks cover profile/lease behavior and adapter assignment mapping, wrong-game rejection, and startup-failure lease cleanup. The process supervisor is compiled by CI but has not yet been exercised against a live SC2 installation.
+- Contract checks cover profile/lease behavior, adapter assignment mapping, wrong-game rejection, startup-failure lease cleanup, and rejection of a runtime status carrying the wrong admitted match ID. The process supervisor is compiled by CI but has not yet been exercised against a live SC2 installation.
 
 ## Verified integration facts
 
@@ -22,7 +22,7 @@ See SIMULATION_SERVER.md and SC2_RUNTIME_PROTOCOL.md.
 
 ## Verification
 
-The GitHub Actions workflow checks out ServerApp's development source, installs .NET 8 with `actions/setup-dotnet@v4`, builds ServerSC2.Core and the adapter, and runs contract checks. CI run 56 for the trusted path-normalization revision completed successfully; the preceding player-ID correlation revision also passed. SingularityBot CI passed for the structured lifecycle markers and fail-closed CreateGame/JoinGame response handling. This environment has no local .NET SDK, so no local build was run. CI success proves compilation and contract checks, not live SC2 integration.
+The GitHub Actions workflow checks out ServerApp's development source, installs .NET 8 with `actions/setup-dotnet@v4`, builds ServerSC2.Core and the adapter, and runs contract checks. CI run 61 completed successfully after the match-identity guard and its contract test were added; the earlier process-supervisor and player-ID correlation revisions also passed. SingularityBot CI passed for the structured lifecycle markers and fail-closed CreateGame/JoinGame response handling. This environment has no local .NET SDK, so no local build was run. CI success proves compilation and contract checks, not live SC2 integration.
 
 ## Next work
 
