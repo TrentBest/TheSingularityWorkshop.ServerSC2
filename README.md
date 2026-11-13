@@ -28,3 +28,8 @@ The current foundation includes validated server profiles, process-local port-pa
 ## Status
 
 See [the architecture](docs/ARCHITECTURE.md) and [the pause point](docs/PAUSE_POINT.md). Next: implement the trusted SC2 runtime/process supervisor, bot attachment, readiness, replay/result evidence, and durable session journal.
+
+
+---
+
+<p align="center"><img src="https://raw.githubusercontent.com/TrentBest/FSM_API/master/Documentation/Branding/TheSingularityWorkshop.png" alt="The Singularity Workshop" width="360" /></p>
