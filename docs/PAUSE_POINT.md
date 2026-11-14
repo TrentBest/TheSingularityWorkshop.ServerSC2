@@ -31,6 +31,12 @@ SingularityBot remains independently owned and must not be modified as a ServerS
 
 ServerSC2 must eventually prove the existing runner against a real supported SC2 installation using immutable build resolution and a compatible trusted port allocation. Do not infer live compatibility from source inspection, fake sockets, or successful protocol setup performed by the probe itself.
 
+## Cross-repository runner contract status
+
+- ServerSC2 requested the exact runner/process/session/evidence contract from SingularityBot in [SingularityBot Issue #13](https://github.com/TrentBest/TheSingularityWorkshop.SingularityBot/issues/13). The issue was rechecked on 2026-11-14; it remains open with no comments or technical response.
+- Until that response arrives, ServerSC2 work must remain independent of assumptions about runner attach mode, observer support, readiness events, terminal-result transport, or replay handoff. Do not modify SingularityBot as a workaround.
+- Safe parallel work remains documentation, deterministic ServerSC2 contract coverage, probe hardening that does not assert unproven live behavior, and CI evidence/provenance improvements. Any production topology integration that depends on runner behavior stays gated on the explicit contract and pinned-build live proof.
+
 ## Next implementation gates
 
 1. Close the standalone probe's live gates: validate the exact observer perspective and PortSet layout on a pinned SC2 build; prove controlled player/observer information separation; observe a real terminal state; save/read/cross-check replay evidence; and prove bounded cleanup on success and failure.
@@ -38,7 +44,7 @@ ServerSC2 must eventually prove the existing runner against a real supported SC2
 3. Add immutable, versioned evidence bound to match/session IDs, map and SC2 build, participant/player IDs, admitted build IDs and SHA-256s, terminal results, replay identity/hash/size, timestamps, and validation diagnostics. Bound artifact storage and clean up partial writes/cancellation.
 4. Replace fixed-two-participant runtime assumptions only alongside verified SC2 player/team/port semantics and format-aware result validation. Keep the generic runner contract independent of SingularityBot-specific flags.
 5. Implement and test trusted artifact resolution with SHA-256 verification before runner launch.
-6. Publish machine-readable deterministic test results and bounded artifacts for CiAi. The currently verified CI workflow is `.github/workflows/ci.yml`, job `build-and-check`, with lanes `Run SC2 probe preflight tests`, `Build core`, `Build ServerApp adapter`, and `Run contract checks`. Its current artifact is `server-sc2-contract-check-results` (JSON); it does not yet publish TRX. CiAi owns artifact provenance normalization and the CI verdict/handoff.
+6. Publish machine-readable deterministic test results and bounded artifacts for CiAi. The currently verified CI workflow is `.github/workflows/ci.yml`, job `build-and-check`, with lanes `Run SC2 probe preflight tests`, `Build core`, `Build ServerApp adapter`, and `Run contract checks`. It uploads `server-sc2-contract-check-results` containing `contract-check-results.json` with 14-day retention, including on failure when the report exists. It does not publish TRX. The contract-check project is currently a `net8.0` console executable (`OutputType=Exe`) invoked with `dotnet run`, not an SDK test project; adding `--logger trx` to this command would not create valid VSTest results. If TRX becomes necessary for CiAi, first introduce a real test-runner project or a deliberate, schema-documented report adapter, then prove failure-path artifact publication. CiAi owns artifact provenance normalization and the CI verdict/handoff.
 7. Run a real SingularityBot runner integration and at least one independent runner through the generic contract. A setup probe that does not launch the runner is not this proof.
 
 ## Verification and authorization boundaries
