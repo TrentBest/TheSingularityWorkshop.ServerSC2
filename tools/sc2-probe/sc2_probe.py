@@ -461,17 +461,30 @@ def build_create_game_request(
     participant_count: int,
     random_seed: int | None = None,
     realtime: bool = False,
+    computer_races: tuple[int, ...] = (),
+    computer_difficulty: int | None = None,
+    computer_ai_build: int | None = None,
 ) -> Any:
-    """Build CreateGame only from fields present in the pinned SC2API schema."""
+    """Build CreateGame for explicit human/bot participants and optional SC2 Computer opponents."""
     if not map_path or not map_path.strip():
         raise ValueError("A local map path is required")
     if participant_count < 1:
         raise ValueError("At least one participant is required")
+    if computer_races and computer_difficulty is None:
+        raise ValueError("Computer opponents require an explicit difficulty")
     request = sc2api_pb2.Request()
     create_game = request.create_game
     create_game.local_map.map_path = map_path
     for _ in range(participant_count):
         create_game.player_setup.add(type=sc2api_pb2.Participant)
+    for race in computer_races:
+        setup = create_game.player_setup.add(
+            type=sc2api_pb2.Computer,
+            race=race,
+            difficulty=computer_difficulty,
+        )
+        if computer_ai_build is not None:
+            setup.ai_build = computer_ai_build
     if random_seed is not None:
         if not 0 <= random_seed <= 0xFFFFFFFF:
             raise ValueError("Random seed must fit uint32")
