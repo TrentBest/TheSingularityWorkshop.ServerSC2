@@ -249,18 +249,15 @@ def run_participant_hosted_setup_sequence(
     manifest: dict[str, Any],
     manifest_path: Path,
 ) -> dict[str, Any]:
-    """Run the candidate observer-hosted 1v1 setup using only explicit inputs.
-
-    The observer is the sole CreateGame caller. No port layout or observer
-    identity is inferred here; both are supplied by the caller and recorded.
-    This is a probe sequence, not evidence that a particular SC2 build supports it.
-    """
+    """Run the runner-contract candidate: player-1 (Participant A) creates and joins,
+    player-2 (Participant B) joins independently, and the observer joins last."""
     player_roles = ("player-1", "player-2")
+    role_labels = {"player-1": "participant-a", "player-2": "participant-b"}
     required_roles = {"observer", *player_roles}
     if set(connections) != required_roles:
         raise ValueError("Connections must contain exactly observer, player-1, and player-2")
     if set(player_races) != set(player_roles):
-        raise ValueError("Explicit player races are required for player-1 and player-2")
+        raise ValueError("Explicit races are required for both participants")
     if "server_ports" not in port_set:
         raise ValueError("One explicit shared server PortSet is required")
     if timeout <= 0:
@@ -268,16 +265,15 @@ def run_participant_hosted_setup_sequence(
 
     initial_exchange_count = len(manifest.get("protocol_exchanges", ()))
     steps = [
-        {"ordinal": 1, "role": "observer", "request": "create_game"},
-        {"ordinal": 2, "role": "observer", "request": "join_game", "participation": "observed_player_id"},
-        *[
-            {"ordinal": ordinal + 3, "role": role, "request": "join_game", "participation": "race"}
-            for ordinal, role in enumerate(player_roles)
-        ],
+        {"ordinal": 1, "role": "participant-a", "request": "create_game"},
+        {"ordinal": 2, "role": "participant-a", "request": "join_game", "participation": "race"},
+        {"ordinal": 3, "role": "participant-b", "request": "join_game", "participation": "race"},
+        {"ordinal": 4, "role": "observer", "request": "join_game", "participation": "observed_player_id"},
     ]
     manifest["setup_sequence"] = {
         "schema_version": 1,
-        "strategy": "candidate-observer-hosted-1v1",
+        "strategy": "participant-hosted-1v1-with-independent-observer",
+        "contract": "SingularityBot runner contract v1",
         "steps": steps,
         "inputs": {
             "map_path": map_path,
@@ -295,17 +291,8 @@ def run_participant_hosted_setup_sequence(
     try:
         create_request = build_create_game_request(sc2api_pb2, map_path, 2)
         perform_setup_exchange(
-            connections["observer"], create_request, sc2api_pb2.Response(),
-            "create_game", timeout, role="observer", gate_name="setup_create_game",
-            manifest=manifest, manifest_path=manifest_path,
-        )
-
-        observer_request = build_join_game_request(
-            sc2api_pb2, observed_player_id=observed_player_id
-        )
-        perform_setup_exchange(
-            connections["observer"], observer_request, sc2api_pb2.Response(),
-            "join_game", timeout, role="observer", gate_name="setup_observer_join",
+            connections["player-1"], create_request, sc2api_pb2.Response(),
+            "create_game", timeout, role="participant-a", gate_name="setup_create_game",
             manifest=manifest, manifest_path=manifest_path,
         )
 
@@ -318,20 +305,31 @@ def run_participant_hosted_setup_sequence(
             )
             perform_setup_exchange(
                 connections[role], player_request, sc2api_pb2.Response(),
-                "join_game", timeout, role=role, gate_name=f"setup_{role}_join",
+                "join_game", timeout, role=role_labels[role], gate_name=f"setup_{role}_join",
                 manifest=manifest, manifest_path=manifest_path,
             )
+
+        observer_request = build_join_game_request(
+            sc2api_pb2, observed_player_id=observed_player_id
+        )
+        perform_setup_exchange(
+            connections["observer"], observer_request, sc2api_pb2.Response(),
+            "join_game", timeout, role="observer", gate_name="setup_observer_join",
+            manifest=manifest, manifest_path=manifest_path,
+        )
+
         player_ids = {
-            role: manifest["gates"][f"setup_{role}_join"]["join_player_id"]
+            role_labels[role]: manifest["gates"][f"setup_{role}_join"]["join_player_id"]
             for role in player_roles
         }
-        distinct_player_ids = player_ids["player-1"] != player_ids["player-2"]
+        distinct_player_ids = player_ids["participant-a"] != player_ids["participant-b"]
         identity_gate = {
             "passed": distinct_player_ids,
             "player_ids": player_ids,
             "distinct_player_ids": distinct_player_ids,
             "requested_observed_player_id": observed_player_id,
             "observed_player_id_semantics_validated": False,
+            "observer_join_acknowledged": manifest["gates"]["setup_observer_join"]["passed"],
         }
         manifest.setdefault("gates", {})["setup_player_identity"] = identity_gate
         write_manifest(manifest_path, manifest)
@@ -349,7 +347,6 @@ def run_participant_hosted_setup_sequence(
     manifest["setup_sequence"]["completed_utc"] = utc_now()
     write_manifest(manifest_path, manifest)
     return manifest["setup_sequence"]
-
 
 def run_single_bot_computer_setup_sequence(
     connections: dict[str, Any],
