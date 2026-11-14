@@ -26,7 +26,7 @@ Work on development. Keep master aligned with the last released state; do not pu
 
 The current foundation includes validated server profiles, a scaled observer-plus-participants port reservation model, a ServerApp IGameSessionAdapter bridge, an observer-oriented process-plan contract, and an initial legacy process supervisor. That supervisor still launches two SC2 instances plus two runners and grants CreateGame authority to one participant; it is not the target observer topology. It waits for both structured join acknowledgements, but runner result markers are diagnostics only and cannot complete a match. Completion is fail-closed until host-authoritative SC2 terminal results and validated replay evidence are both available. The trusted artifact resolver and live-SC2, result/replay, and cleanup proofs remain outstanding. Port reservations are process-local and are not OS-level socket reservations.
 
-See [the architecture](docs/ARCHITECTURE.md), [SimulationServer orchestration](docs/SIMULATION_SERVER.md), [SC2 runtime protocol notes](docs/SC2_RUNTIME_PROTOCOL.md), [observer-host design](docs/OBSERVER_HOST_DESIGN.md), and [the pause point](docs/PAUSE_POINT.md).
+See [the architecture](docs/ARCHITECTURE.md), [SimulationServer orchestration](docs/SIMULATION_SERVER.md), [SC2 runtime protocol notes](docs/SC2_RUNTIME_PROTOCOL.md), [the first three-race ladder plan](docs/FIRST_RACE_LADDER.md), [observer-host design](docs/OBSERVER_HOST_DESIGN.md), and [the pause point](docs/PAUSE_POINT.md).
 
 ## Status
 
