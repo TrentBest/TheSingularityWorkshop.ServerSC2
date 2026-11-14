@@ -335,6 +335,122 @@ def run_observer_setup_sequence(
     return manifest["setup_sequence"]
 
 
+def summarize_game_info(response: Any) -> dict[str, Any]:
+    """Extract roster metadata without treating it as visibility evidence."""
+    if not response.HasField("game_info"):
+        raise ValueError("GameInfo response payload is missing")
+    info = response.game_info
+    players = []
+    for player in info.player_info:
+        item: dict[str, Any] = {}
+        for field in ("player_id", "type", "race_requested", "race_actual", "player_name"):
+            if player.HasField(field):
+                item[field] = getattr(player, field)
+        players.append(item)
+    return {
+        "map_name": info.map_name if info.HasField("map_name") else None,
+        "player_info": players,
+        "player_count": len(players),
+    }
+
+
+def summarize_observation(response: Any) -> dict[str, Any]:
+    """Capture raw unit visibility metadata; this is not an isolation verdict."""
+    if not response.HasField("observation"):
+        raise ValueError("Observation response payload is missing")
+    observation = response.observation
+    summary: dict[str, Any] = {
+        "game_loop": observation.game_loop if observation.HasField("game_loop") else None,
+        "raw_data_present": observation.HasField("raw_data"),
+        "unit_count": 0,
+        "units": [],
+        "player_result_count": len(response.player_result),
+    }
+    if observation.HasField("raw_data"):
+        for unit in observation.raw_data.units:
+            item: dict[str, Any] = {}
+            for field in ("tag", "unit_type", "owner", "display_type", "alliance"):
+                if unit.HasField(field):
+                    item[field] = getattr(unit, field)
+            summary["units"].append(item)
+        summary["unit_count"] = len(summary["units"])
+    return summary
+
+
+def capture_post_join_observations(
+    connections: dict[str, Any],
+    sc2api_pb2: Any,
+    *,
+    timeout: float,
+    manifest: dict[str, Any],
+    manifest_path: Path,
+) -> dict[str, Any]:
+    """Capture GameInfo and fog-respecting Observation snapshots from each role."""
+    roles = ("observer", "player-1", "player-2")
+    if set(connections) != set(roles):
+        raise ValueError("Post-join capture requires observer, player-1, and player-2")
+    capture: dict[str, Any] = {
+        "schema_version": 1,
+        "disable_fog_requested": False,
+        "roles": {},
+        "information_isolation_validated": False,
+        "passed": False,
+    }
+    manifest["post_join_capture"] = capture
+    write_manifest(manifest_path, manifest)
+    for role in roles:
+        role_capture: dict[str, Any] = {"game_info": None, "observation": None}
+        capture["roles"][role] = role_capture
+        write_manifest(manifest_path, manifest)
+
+        game_info_request = sc2api_pb2.Request()
+        game_info_request.game_info.SetInParent()
+        game_info_response, game_info_event = exchange_protocol(
+            connections[role], game_info_request, sc2api_pb2.Response(),
+            "game_info", timeout,
+        )
+        game_info_summary = summarize_game_info(game_info_response)
+        game_info_gate = {
+            "passed": game_info_response.WhichOneof("response") == "game_info",
+            "summary": game_info_summary,
+        }
+        game_info_event["role"] = role
+        game_info_event["gate"] = "post_join_game_info"
+        manifest.setdefault("protocol_exchanges", []).append(game_info_event)
+        role_capture["game_info"] = game_info_gate
+        manifest.setdefault("gates", {})[f"{role}_game_info"] = game_info_gate
+        write_manifest(manifest_path, manifest)
+        if not game_info_gate["passed"]:
+            raise RuntimeError(f"{role} GameInfo response gate failed")
+
+        observation_request = sc2api_pb2.Request()
+        observation_request.observation.disable_fog = False
+        observation_response, observation_event = exchange_protocol(
+            connections[role], observation_request, sc2api_pb2.Response(),
+            "observation", timeout,
+        )
+        observation_summary = summarize_observation(observation_response)
+        observation_gate = {
+            "passed": observation_response.WhichOneof("response") == "observation"
+            and observation_summary["raw_data_present"],
+            "summary": observation_summary,
+        }
+        observation_event["role"] = role
+        observation_event["gate"] = "post_join_observation"
+        manifest.setdefault("protocol_exchanges", []).append(observation_event)
+        role_capture["observation"] = observation_gate
+        manifest.setdefault("gates", {})[f"{role}_observation"] = observation_gate
+        write_manifest(manifest_path, manifest)
+        if not observation_gate["passed"]:
+            raise RuntimeError(f"{role} raw Observation response gate failed")
+
+    capture["passed"] = True
+    capture["information_isolation_validated"] = False
+    capture["completed_utc"] = utc_now()
+    write_manifest(manifest_path, manifest)
+    return capture
+
+
 def build_create_game_request(
     sc2api_pb2: Any,
     map_path: str,
@@ -607,7 +723,14 @@ def run_probe(config: ProbeConfig) -> int:
                     manifest_path=config.output_dir / "evidence.json",
                 )
                 manifest["gates"]["setup_sequence"] = {"attempted": True, "passed": True}
-                manifest["status"] = "live-setup-sequence-passed"
+                capture_post_join_observations(
+                    live_connections, sc2api_pb2,
+                    timeout=min(10.0, config.startup_timeout),
+                    manifest=manifest,
+                    manifest_path=config.output_dir / "evidence.json",
+                )
+                manifest["gates"]["post_join_capture"] = {"attempted": True, "passed": True}
+                manifest["status"] = "live-post-join-capture-passed"
             finally:
                 for connection in live_connections.values():
                     connection.close()
