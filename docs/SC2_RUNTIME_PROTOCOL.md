@@ -169,7 +169,8 @@ The ServerApp adapter now defines schema-v1 `Sc2MatchEvidence` and `Sc2MatchEvid
 - match/session and observer session/process identity;
 - explicit SC2 terminal status (`Ended` only), adapter/game version, SC2 data-version/build fingerprint, and map identity;
 - immutable participant/team/build IDs and admitted SHA-256 values;
-- terminal observer results keyed by SC2 player ID;
+- host-owned JoinGame bindings that correlate each assignment ID to one unique SC2 player ID;
+- terminal observer results keyed by SC2 player ID and checked against those JoinGame bindings;
 - replay artifact identity/location, positive bounded byte length, persisted/verified SHA-256, and ReplayInfo map/build/player-result metadata;
 - capture and terminal-observation timestamps plus a normalized completed outcome.
 
