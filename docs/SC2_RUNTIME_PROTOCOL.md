@@ -162,6 +162,21 @@ The probe must:
 
 The harness must not trust runner stdout as authoritative evidence. Its evidence manifest must distinguish protocol observations from diagnostics and retain raw logs for audit. A successful probe proves only the exact pinned build/map/topology exercised; it does not automatically enable other player counts, teams, maps, or game versions.
 
+## Host-side evidence contract (implemented validator; producer not yet wired)
+
+The ServerApp adapter now defines schema-v1 `Sc2MatchEvidence` and `Sc2MatchEvidenceValidator`. The contract binds:
+
+- match/session and observer session/process identity;
+- explicit SC2 terminal status (`Ended` only), adapter/game version, SC2 data-version/build fingerprint, and map identity;
+- immutable participant/team/build IDs and admitted SHA-256 values;
+- terminal observer results keyed by SC2 player ID;
+- replay artifact identity/location, positive bounded byte length, persisted/verified SHA-256, and ReplayInfo map/build/player-result metadata;
+- capture and terminal-observation timestamps plus a normalized completed outcome.
+
+The validator emits stable diagnostic codes and rejects assignment mismatch, duplicate/missing/unknown player identity, invalid or Undecided results, replay metadata/result disagreement, invalid digest or size, incomplete provenance, and non-terminal status. The completion gate no longer accepts two caller-supplied booleans; it accepts only a passing `Sc2MatchEvidenceValidation` created by the validator.
+
+**Important implementation boundary:** the production `Sc2ProcessSessionRuntime` currently supplies no evidence to the gate, so it remains Running. No observer controller yet creates this evidence, and no bounded replay artifact store/persistence path is wired. The new contract and deterministic tests establish the validation boundary; they do not claim that terminal evidence or replay capture works live.
+
 ## Readiness and completion rules
 
 - An open TCP port or live process is not protocol readiness.
