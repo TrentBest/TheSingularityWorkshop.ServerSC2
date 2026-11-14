@@ -33,6 +33,11 @@ class ProbeConfig:
     observed_player_id: int | None = None
     player_races: dict[str, int] | None = None
     port_set: dict[str, Any] | None = None
+    race_match: bool = False
+    bot_race: int | None = None
+    computer_race: int | None = None
+    computer_difficulty: int | None = None
+    computer_ai_build: int | None = None
 
 
 def utc_now() -> str:
@@ -53,34 +58,46 @@ def validate_config(config: ProbeConfig) -> list[str]:
         errors.append("Base port must be between 1024 and 65532")
     if config.startup_timeout <= 0 or config.shutdown_timeout <= 0:
         errors.append("Startup and shutdown timeouts must be positive")
-    if config.setup_sequence:
+    if config.race_match:
+        if not config.setup_sequence:
+            errors.append("Race-match mode requires the opt-in setup sequence")
+        if config.observed_player_id is None or not 0 <= config.observed_player_id <= 0xFFFFFFFF:
+            errors.append("Race-match mode requires an explicit uint32 observed player ID")
+        if config.bot_race is None:
+            errors.append("Race-match mode requires an explicit bot race")
+        if config.computer_race is None:
+            errors.append("Race-match mode requires an explicit Computer race")
+        if config.computer_difficulty is None:
+            errors.append("Race-match mode requires an explicit Computer difficulty")
+    elif config.setup_sequence:
         if config.observed_player_id is None or not 0 <= config.observed_player_id <= 0xFFFFFFFF:
             errors.append("Setup sequence requires an explicit uint32 observed player ID")
         if config.player_races is None or set(config.player_races) != {"player-1", "player-2"}:
             errors.append("Setup sequence requires explicit races for both players")
-        if config.port_set is None:
-            errors.append("Setup sequence requires one explicit shared SC2 PortSet layout")
-        else:
-            flattened: list[int] = []
-            try:
-                pairs = [config.port_set["server_ports"], *config.port_set.get("client_ports", ())]
-                if any(len(pair) != 2 for pair in pairs):
-                    raise ValueError("PortSet pairs must contain exactly two ports")
-                flattened.extend(port for pair in pairs for port in pair)
-                if any(not 1 <= port <= 65535 for port in flattened):
-                    errors.append("Every explicit setup port must be between 1 and 65535")
-                if len(flattened) != len(set(flattened)):
-                    errors.append("Ports in the shared SC2 PortSet layout must not overlap")
-            except (KeyError, TypeError, ValueError):
-                errors.append("Setup sequence requires valid explicit server/client PortSet pairs")
-    listener_ports = list(range(config.base_port, config.base_port + 3))
-    if len(set(listener_ports)) != 3:
+    if config.setup_sequence and config.port_set is None:
+        errors.append("Setup sequence requires one explicit shared SC2 PortSet layout")
+    if config.setup_sequence and config.port_set is not None:
+        flattened: list[int] = []
+        try:
+            pairs = [config.port_set["server_ports"], *config.port_set.get("client_ports", ())]
+            if any(len(pair) != 2 for pair in pairs):
+                raise ValueError("PortSet pairs must contain exactly two ports")
+            flattened.extend(port for pair in pairs for port in pair)
+            if any(not 1 <= port <= 65535 for port in flattened):
+                errors.append("Every explicit setup port must be between 1 and 65535")
+            if len(flattened) != len(set(flattened)):
+                errors.append("Ports in the shared SC2 PortSet layout must not overlap")
+        except (KeyError, TypeError, ValueError):
+            errors.append("Setup sequence requires valid explicit server/client PortSet pairs")
+    listener_count = 2 if config.race_match else 3
+    listener_ports = list(range(config.base_port, config.base_port + listener_count))
+    if len(set(listener_ports)) != listener_count:
         errors.append("SC2 listener ports overlap")
     ports_to_check = list(listener_ports)
     if config.setup_sequence and config.port_set is not None:
         for pair in [config.port_set.get("server_ports", ()), *config.port_set.get("client_ports", ())]:
             ports_to_check.extend(pair)
-        if set(listener_ports).intersection(ports_to_check[len(listener_ports):]):
+        if set(listener_ports).intersection(ports_to_check[listener_count:]):
             errors.append("Explicit setup PortSet layout overlaps SC2 API listener ports")
     for port in dict.fromkeys(ports_to_check):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -89,7 +106,6 @@ def validate_config(config: ProbeConfig) -> list[str]:
             except OSError:
                 errors.append(f"Required local port is already unavailable: {port}")
     return errors
-
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -707,7 +723,7 @@ def run_probe(config: ProbeConfig) -> int:
     config.output_dir.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, Any] = {
         "schema_version": 1,
-        "probe": "server-sc2-three-process-bootstrap",
+        "probe": "server-sc2-race-match" if config.race_match else "server-sc2-three-process-bootstrap",
         "started_utc": utc_now(),
         "configuration": {
             "executable": str(config.executable),
@@ -716,6 +732,11 @@ def run_probe(config: ProbeConfig) -> int:
             "expected_version": config.expected_version,
             "base_port": config.base_port,
             "setup_sequence_opt_in": config.setup_sequence,
+            "race_match_opt_in": config.race_match,
+            "bot_race": config.bot_race,
+            "computer_race": config.computer_race,
+            "computer_difficulty": config.computer_difficulty,
+            "computer_ai_build": config.computer_ai_build,
             "observed_player_id": config.observed_player_id,
             "player_races": config.player_races,
             "shared_port_set_layout": config.port_set,
@@ -744,7 +765,8 @@ def run_probe(config: ProbeConfig) -> int:
 
     processes: list[tuple[str, subprocess.Popen[bytes]]] = []
     try:
-        for ordinal, role in enumerate(("observer", "player-1", "player-2")):
+        process_roles = ("observer", "player-1") if config.race_match else ("observer", "player-1", "player-2")
+        for ordinal, role in enumerate(process_roles):
             port = config.base_port + ordinal
             command = [
                 str(config.executable),
@@ -824,32 +846,48 @@ def run_probe(config: ProbeConfig) -> int:
 
             live_connections: dict[str, Any] = {}
             try:
-                for ordinal, role in enumerate(("observer", "player-1", "player-2")):
+                for ordinal, role in enumerate(process_roles):
                     live_connections[role] = create_connection(
                         f"ws://127.0.0.1:{config.base_port + ordinal}/sc2api",
                         timeout=min(10.0, config.startup_timeout),
                         enable_multithread=False,
                     )
                 manifest["gates"]["setup_sequence"] = {"attempted": True, "passed": False}
-                run_observer_setup_sequence(
-                    live_connections, sc2api_pb2,
-                    map_path=str(config.map_path),
-                    observed_player_id=config.observed_player_id,
-                    player_races=config.player_races,
-                    port_set=config.port_set,
-                    timeout=min(10.0, config.startup_timeout),
-                    manifest=manifest,
-                    manifest_path=config.output_dir / "evidence.json",
-                )
+                if config.race_match:
+                    run_single_bot_computer_setup_sequence(
+                        live_connections, sc2api_pb2,
+                        map_path=str(config.map_path),
+                        observed_player_id=config.observed_player_id,
+                        bot_race=config.bot_race,
+                        computer_race=config.computer_race,
+                        computer_difficulty=config.computer_difficulty,
+                        computer_ai_build=config.computer_ai_build,
+                        port_set=config.port_set,
+                        timeout=min(10.0, config.startup_timeout),
+                        manifest=manifest,
+                        manifest_path=config.output_dir / "evidence.json",
+                    )
+                else:
+                    run_observer_setup_sequence(
+                        live_connections, sc2api_pb2,
+                        map_path=str(config.map_path),
+                        observed_player_id=config.observed_player_id,
+                        player_races=config.player_races,
+                        port_set=config.port_set,
+                        timeout=min(10.0, config.startup_timeout),
+                        manifest=manifest,
+                        manifest_path=config.output_dir / "evidence.json",
+                    )
                 manifest["gates"]["setup_sequence"] = {"attempted": True, "passed": True}
                 capture_post_join_observations(
                     live_connections, sc2api_pb2,
                     timeout=min(10.0, config.startup_timeout),
                     manifest=manifest,
                     manifest_path=config.output_dir / "evidence.json",
+                    roles=process_roles,
                 )
                 manifest["gates"]["post_join_capture"] = {"attempted": True, "passed": True}
-                manifest["status"] = "live-post-join-capture-passed"
+                manifest["status"] = "live-race-match-setup-captured" if config.race_match else "live-post-join-capture-passed"
             finally:
                 for connection in live_connections.values():
                     connection.close()
@@ -914,6 +952,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--startup-timeout", type=float, default=90.0)
     parser.add_argument("--shutdown-timeout", type=float, default=15.0)
     parser.add_argument("--setup-sequence", action="store_true", help="Opt in to live CreateGame/observer/player setup after bootstrap gates")
+    parser.add_argument("--race-match", action="store_true", help="Opt in to a two-process observer-hosted bot-versus-Computer setup")
+    parser.add_argument("--bot-race", type=int, help="Explicit SC2 race enum for the bot participant")
+    parser.add_argument("--computer-race", type=int, help="Explicit SC2 race enum for the Computer opponent")
+    parser.add_argument("--computer-difficulty", type=int, help="Explicit SC2 Computer difficulty enum")
+    parser.add_argument("--computer-ai-build", type=int, help="Optional SC2 Computer AI build enum")
     parser.add_argument("--observed-player-id", "--observer-player-id", dest="observed_player_id", type=int, help="Player ID whose perspective the observer joins")
     parser.add_argument("--player-1-race", type=int)
     parser.add_argument("--player-2-race", type=int)
@@ -948,26 +991,43 @@ def main(argv: list[str] | None = None) -> int:
     if missing:
         print("Missing required inputs: " + ", ".join(missing), file=sys.stderr)
         return 2
-    if args.setup_sequence:
+    setup_opt_in = args.setup_sequence or args.race_match
+    if args.race_match:
+        setup_required = {
+            "--observed-player-id": args.observed_player_id,
+            "--bot-race": args.bot_race,
+            "--computer-race": args.computer_race,
+            "--computer-difficulty": args.computer_difficulty,
+            "--server-ports": args.server_ports,
+        }
+        if any(value is not None for value in (args.player_1_race, args.player_2_race)):
+            print("--race-match cannot be combined with --player-1-race/--player-2-race.", file=sys.stderr)
+            return 2
+    elif args.setup_sequence:
         setup_required = {
             "--observed-player-id": args.observed_player_id,
             "--player-1-race": args.player_1_race,
             "--player-2-race": args.player_2_race,
             "--server-ports": args.server_ports,
         }
+    else:
+        setup_required = {}
+    if setup_required:
         missing_setup = [name for name, value in setup_required.items() if value is None]
         if missing_setup:
-            print("Setup sequence requires: " + ", ".join(missing_setup), file=sys.stderr)
+            print("Setup mode requires: " + ", ".join(missing_setup), file=sys.stderr)
             return 2
         try:
             port_set = {"server_ports": parse_port_pair(args.server_ports), "client_ports": tuple(parse_port_pair(v) for v in args.client_ports)}
         except argparse.ArgumentTypeError as exc:
             print(str(exc), file=sys.stderr)
             return 2
-        player_races = {"player-1": args.player_1_race, "player-2": args.player_2_race}
+        player_races = {"player-1": args.player_1_race, "player-2": args.player_2_race} if args.setup_sequence and not args.race_match else None
     else:
-        if any(value is not None for value in (args.observed_player_id, args.player_1_race, args.player_2_race, args.server_ports)) or args.client_ports:
-            print("Setup inputs require --setup-sequence.", file=sys.stderr)
+        extra = (args.observed_player_id, args.player_1_race, args.player_2_race, args.server_ports,
+                 args.bot_race, args.computer_race, args.computer_difficulty, args.computer_ai_build)
+        if any(value is not None for value in extra) or args.client_ports:
+            print("Setup inputs require --setup-sequence or --race-match.", file=sys.stderr)
             return 2
         port_set = None
         player_races = None
@@ -980,7 +1040,12 @@ def main(argv: list[str] | None = None) -> int:
         base_port=args.base_port,
         startup_timeout=args.startup_timeout,
         shutdown_timeout=args.shutdown_timeout,
-        setup_sequence=args.setup_sequence,
+        setup_sequence=setup_opt_in,
+        race_match=args.race_match,
+        bot_race=args.bot_race,
+        computer_race=args.computer_race,
+        computer_difficulty=args.computer_difficulty,
+        computer_ai_build=args.computer_ai_build,
         observed_player_id=args.observed_player_id,
         player_races=player_races,
         port_set=port_set,
