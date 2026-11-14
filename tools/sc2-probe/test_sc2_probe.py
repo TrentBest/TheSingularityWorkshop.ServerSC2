@@ -175,7 +175,7 @@ class ParticipantHostedSetupSequenceTests(unittest.TestCase):
         self.assertEqual(saved["gates"]["setup_player_identity"]["player_ids"], {"participant-a": 1, "participant-b": 1})
         self.assertFalse(saved["setup_sequence"]["passed"])
 
-    def test_observer_join_failure_is_persisted_and_prevents_player_joins(self):
+    def test_observer_join_failure_is_persisted_after_participant_joins(self):
         connections = self.setup_inputs()
         failed_observer_join = self.protocol.Response()
         failed_observer_join.join_game.error = self.protocol.ResponseJoinGame.FeatureUnsupported
