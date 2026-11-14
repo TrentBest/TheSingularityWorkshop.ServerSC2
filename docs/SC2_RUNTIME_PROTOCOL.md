@@ -95,7 +95,7 @@ The current bootstrap implementation is deliberately narrower than the full acce
 - it writes a versioned `evidence.json`, per-role ping metadata, and stdout/stderr logs;
 - cleanup is bounded and attempts to terminate process groups/process trees.
 
-With the default invocation, this is only a three-process/API-bootstrap proof. When the additional `--setup-sequence` flag and all explicit setup inputs are supplied, the live probe also attempts the candidate CreateGame → observer JoinGame → player JoinGame sequence described below. Even an accepted setup sequence does not test information isolation, capture terminal results, or save/validate a replay. CI runs only preflight and fake-protocol tests and never launches SC2.
+With the default invocation, this is only a three-process/API-bootstrap proof. When the additional `--setup-sequence` flag and all explicit setup inputs are supplied, the live probe also attempts the candidate CreateGame → observer JoinGame → player JoinGame sequence described below. After all four setup acknowledgements, the opt-in live path requests GameInfo and a raw Observation from the observer and both player connections. Observation requests explicitly keep disable_fog=false; exact protobuf exchanges and compact roster/unit visibility summaries are persisted. This verifies that all three channels answer these requests, but it does not yet validate information isolation: a controlled map/scenario with known hidden units and expected visibility is still required. Terminal results and replay save/validation also remain unimplemented. CI runs only preflight and fake-protocol tests and never launches SC2.
 
 Install the pinned developer dependencies with `python -m pip install -r tools/sc2-probe/requirements.txt`. The invocation contract is intentionally explicit; do not run it until a trusted local SC2 build/map are selected:
 
@@ -119,9 +119,17 @@ The probe now routes its bootstrap ping through a small transport boundary that 
 
 The protobuf `Request` and `Response` envelopes each define an optional `id` field (field 97). The probe captures these values when present, but does not yet assume the server echoes or assigns them. Blizzard's protocol documentation specifies that responses match requests in their incoming order; the probe therefore keeps exactly one request outstanding per connection and records that FIFO correlation assumption explicitly. This is intentionally conservative: it avoids relying on unverified identifier-echo behavior or introducing pipelining before the probe has tests for ordered multi-request handling.
 
-Transport records are protocol evidence, not proof of game readiness. The default run remains RequestPing-only. The opt-in `--setup-sequence` path now uses the setup builders and durable response gate to attempt CreateGame on the observer process, then observer JoinGame and both player JoinGame requests. Lifecycle observations, information-isolation evidence, authoritative result capture, and replay validation remain unimplemented live-proof gates.
+Transport records are protocol evidence, not proof of game readiness. The default run remains RequestPing-only. The opt-in `--setup-sequence` path attempts CreateGame on the observer process, then observer JoinGame and both player JoinGame requests. After setup, it requests GameInfo and a fog-respecting raw Observation from all three channels, persisting each exact exchange before enforcing its response gate. These snapshots expose roster and unit visibility metadata for later analysis; they do not themselves establish that players are isolated from observer-only information. A controlled visibility scenario, authoritative terminal result capture, and replay validation remain live-proof gates.
 
 Reference: https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.md
+
+## Post-join GameInfo and Observation capture
+
+After the candidate setup sequence receives all four acknowledgements, the probe issues one `RequestGameInfo` and one `RequestObservation` on each of the observer, player-1, and player-2 connections. It keeps one request outstanding per connection and persists the raw protobuf request/response exchange before evaluating each response.
+
+The observation request explicitly sets `disable_fog=false`. The compact evidence summary records the map name, player roster metadata, game loop, and each raw unit's available tag, type, owner, display type, and alliance fields. Missing response payloads or missing raw observation data fail closed. Failed exchanges are retained in `evidence.json`.
+
+This is a **channel/snapshot capture milestone**, not an information-isolation proof. GameInfo roster equality is not visibility equality, and one snapshot on an arbitrary map cannot establish that a competitor cannot see observer-only information. A later live test must use a controlled map/scenario with known units or other deliberately hidden information, compare expected visibility from each participant's perspective over relevant game loops, and explicitly demonstrate that the observer can see the required state while players cannot see information outside their authorized view. The manifest therefore keeps `information_isolation_validated=false` even when all six requests succeed.
 
 ## Live proof harness acceptance contract
 
