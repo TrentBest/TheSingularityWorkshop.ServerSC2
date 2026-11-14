@@ -7,7 +7,8 @@ from pathlib import Path
 from sc2_probe import (
     ProbeConfig, build_create_game_request, build_join_game_request,
     exchange_protocol, evaluate_setup_response, evaluate_version_gate, perform_setup_exchange,
-    run_observer_setup_sequence, run_probe, parse_args, parse_port_pair, validate_config,
+    run_observer_setup_sequence, run_probe, capture_post_join_observations,
+    parse_args, parse_port_pair, validate_config,
 )
 
 
@@ -540,6 +541,83 @@ class ProbePreflightTests(unittest.TestCase):
         result = evaluate_version_gate(protocol, "5.0.17")
         self.assertFalse(result["passed"])
         self.assertFalse(result["all_processes_report_same_complete_build"])
+
+
+class PostJoinObservationCaptureTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from s2clientprotocol import sc2api_pb2
+        cls.protocol = sc2api_pb2
+
+    def response_bytes(self, role, payload):
+        response = self.protocol.Response()
+        if payload == "game_info":
+            info = response.game_info
+            info.map_name = "ProbeMap"
+            player = info.player_info.add()
+            player.player_id = 1
+            player.type = self.protocol.Participant
+        else:
+            observation = response.observation
+            observation.game_loop = 0
+            observation.raw_data.SetInParent()
+            unit = observation.raw_data.units.add()
+            unit.tag = 123
+            unit.unit_type = 45
+            unit.owner = 1
+            unit.display_type = 1
+            unit.alliance = 1
+        return response.SerializeToString()
+
+    def test_captures_game_info_and_fog_respecting_raw_observations(self):
+        connections = {
+            role: QueuedFakeSocket([
+                self.response_bytes(role, "game_info"),
+                self.response_bytes(role, "observation"),
+            ])
+            for role in ("observer", "player-1", "player-2")
+        }
+        manifest = {"protocol_exchanges": [], "gates": {}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            result = capture_post_join_observations(
+                connections, self.protocol, timeout=2.0,
+                manifest=manifest, manifest_path=path,
+            )
+            self.assertTrue(result["passed"])
+            self.assertFalse(result["disable_fog_requested"])
+            self.assertFalse(result["information_isolation_validated"])
+            self.assertEqual(len(manifest["protocol_exchanges"]), 6)
+            for role in ("observer", "player-1", "player-2"):
+                self.assertEqual(result["roles"][role]["game_info"]["summary"]["map_name"], "ProbeMap")
+                self.assertEqual(result["roles"][role]["observation"]["summary"]["unit_count"], 1)
+                request = self.protocol.Request()
+                request.ParseFromString(connections[role].sent[1])
+                self.assertFalse(request.observation.disable_fog)
+            persisted = json.loads(path.read_text(encoding="utf-8"))
+            self.assertTrue(persisted["post_join_capture"]["passed"])
+            self.assertEqual(persisted["post_join_capture"]["roles"]["observer"]["observation"]["summary"]["units"][0]["tag"], 123)
+
+    def test_rejects_observation_without_raw_data(self):
+        connections = {}
+        for role in ("observer", "player-1", "player-2"):
+            info = self.protocol.Response()
+            info.game_info.map_name = "ProbeMap"
+            observation = self.protocol.Response()
+            observation.observation.game_loop = 0
+            connections[role] = QueuedFakeSocket([
+                info.SerializeToString(), observation.SerializeToString(),
+            ])
+        manifest = {"protocol_exchanges": [], "gates": {}}
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, "raw Observation"):
+                capture_post_join_observations(
+                    connections, self.protocol, timeout=2.0,
+                    manifest=manifest, manifest_path=Path(directory) / "evidence.json",
+                )
+            self.assertFalse(manifest["gates"]["observer_observation"]["passed"])
+            self.assertEqual(len(manifest["protocol_exchanges"]), 2)
+
 
 
 if __name__ == "__main__":
