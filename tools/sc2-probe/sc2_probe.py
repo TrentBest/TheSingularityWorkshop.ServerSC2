@@ -237,7 +237,7 @@ def perform_setup_exchange(
 
 
 
-def run_observer_setup_sequence(
+def run_participant_hosted_setup_sequence(
     connections: dict[str, Any],
     sc2api_pb2: Any,
     *,
@@ -870,7 +870,7 @@ def run_probe(config: ProbeConfig) -> int:
                         manifest_path=config.output_dir / "evidence.json",
                     )
                 else:
-                    run_observer_setup_sequence(
+                    run_participant_hosted_setup_sequence(
                         live_connections, sc2api_pb2,
                         map_path=str(config.map_path),
                         observed_player_id=config.observed_player_id,
