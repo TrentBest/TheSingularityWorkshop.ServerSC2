@@ -514,6 +514,13 @@ static void EvidenceRejectsReplayFailures()
     Assert(ValidateEvidence(wrongBuild).Diagnostics.Contains("evidence.replay.game-version-mismatch"),
         "Replay game version mismatch was not rejected.");
 
+    var wrongDataBuild = evidence with
+    {
+        Replay = evidence.Replay! with { DataBuild = evidence.Replay.DataBuild + 1 }
+    };
+    Assert(ValidateEvidence(wrongDataBuild).Diagnostics.Contains("evidence.replay.sc2-build-metadata-mismatch"),
+        "Replay data-build mismatch was not rejected.");
+
     var wrongResult = evidence with
     {
         Replay = evidence.Replay! with
