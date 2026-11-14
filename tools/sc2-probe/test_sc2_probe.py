@@ -266,6 +266,34 @@ class DescriptorBackedRequestBuilderTests(unittest.TestCase):
         self.assertEqual(request.create_game.random_seed, 7)
         self.assertFalse(request.create_game.realtime)
 
+    def test_create_game_supports_one_participant_and_explicit_computer_race(self):
+        from s2clientprotocol import common_pb2
+        request = build_create_game_request(
+            self.protocol,
+            "/trusted/maps/test.SC2Map",
+            1,
+            computer_races=(common_pb2.Protoss,),
+            computer_difficulty=self.protocol.Medium,
+            computer_ai_build=self.protocol.Macro,
+        )
+        setups = request.create_game.player_setup
+        self.assertEqual(len(setups), 2)
+        self.assertEqual(setups[0].type, self.protocol.Participant)
+        self.assertEqual(setups[1].type, self.protocol.Computer)
+        self.assertEqual(setups[1].race, common_pb2.Protoss)
+        self.assertEqual(setups[1].difficulty, self.protocol.Medium)
+        self.assertEqual(setups[1].ai_build, self.protocol.Macro)
+
+    def test_create_game_requires_explicit_computer_difficulty(self):
+        from s2clientprotocol import common_pb2
+        with self.assertRaisesRegex(ValueError, "explicit difficulty"):
+            build_create_game_request(
+                self.protocol,
+                "/trusted/maps/test.SC2Map",
+                1,
+                computer_races=(common_pb2.Terran,),
+            )
+
     def test_join_player_and_observer_modes_use_distinct_oneof_fields(self):
         player = build_join_game_request(
             self.protocol, race=self.terran_race,
