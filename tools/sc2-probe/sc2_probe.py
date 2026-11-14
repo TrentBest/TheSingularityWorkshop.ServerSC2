@@ -485,7 +485,14 @@ def run_probe(config: ProbeConfig) -> int:
             "player_races": config.player_races,
             "shared_port_set_layout": config.port_set,
         },
-        "map": {"sha256": sha256_file(config.map_path), "size_bytes": config.map_path.stat().st_size},
+        "map": {
+            "path": str(config.map_path),
+            "exists": config.map_path.is_file(),
+            **(
+                {"sha256": sha256_file(config.map_path), "size_bytes": config.map_path.stat().st_size}
+                if config.map_path.is_file() else {}
+            ),
+        },
         "gates": {},
         "processes": [],
         "protocol": {},
