@@ -532,12 +532,11 @@ def capture_post_join_observations(
         game_info_event["role"] = role
         game_info_event["gate"] = "post_join_game_info"
         manifest.setdefault("protocol_exchanges", []).append(game_info_event)
-        game_info_type_matches = game_info_response.WhichOneof("response") == "game_info"
-        game_info_gate: dict[str, Any] = {"passed": game_info_type_matches}
+        game_info_gate = evaluate_setup_response(game_info_response, "game_info")
         role_capture["game_info"] = game_info_gate
         manifest.setdefault("gates", {})[f"{role}_game_info"] = game_info_gate
         write_manifest(manifest_path, manifest)
-        if not game_info_type_matches:
+        if not game_info_gate["passed"]:
             raise RuntimeError(f"{role} GameInfo response gate failed")
         game_info_gate["summary"] = summarize_game_info(game_info_response)
         write_manifest(manifest_path, manifest)
@@ -551,12 +550,11 @@ def capture_post_join_observations(
         observation_event["role"] = role
         observation_event["gate"] = "post_join_observation"
         manifest.setdefault("protocol_exchanges", []).append(observation_event)
-        observation_type_matches = observation_response.WhichOneof("response") == "observation"
-        observation_gate: dict[str, Any] = {"passed": observation_type_matches}
+        observation_gate = evaluate_setup_response(observation_response, "observation")
         role_capture["observation"] = observation_gate
         manifest.setdefault("gates", {})[f"{role}_observation"] = observation_gate
         write_manifest(manifest_path, manifest)
-        if not observation_type_matches:
+        if not observation_gate["passed"]:
             raise RuntimeError(f"{role} Observation response gate failed")
         observation_summary = summarize_observation(observation_response)
         observation_gate["passed"] = observation_summary["raw_data_present"]
