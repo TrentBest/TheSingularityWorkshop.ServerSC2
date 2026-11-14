@@ -101,11 +101,8 @@ class ObserverSetupSequenceTests(unittest.TestCase):
             "player-2": QueuedFakeSocket([self.response("join_game", player_id=2)]),
         }
 
-    def port_sets(self):
-        return {
-            "player-1": {"server_ports": (5002, 5003), "client_ports": ((5004, 5005),)},
-            "player-2": {"server_ports": (5006, 5007), "client_ports": ((5008, 5009),)},
-        }
+    def port_set(self):
+        return {"server_ports": (5002, 5003), "client_ports": ((5004, 5005),)}
 
     def test_candidate_sequence_records_explicit_inputs_and_orders_observer_first(self):
         connections = self.setup_inputs()
@@ -114,9 +111,9 @@ class ObserverSetupSequenceTests(unittest.TestCase):
             path = Path(directory) / "evidence.json"
             result = run_observer_setup_sequence(
                 connections, self.protocol, map_path="trusted/test.SC2Map",
-                observer_player_id=0,
+                observed_player_id=0,
                 player_races={"player-1": self.terran, "player-2": self.zerg},
-                player_port_sets=self.port_sets(), timeout=2.0,
+                port_set=self.port_set(), timeout=2.0,
                 manifest=manifest, manifest_path=path,
             )
             saved = json.loads(path.read_text(encoding="utf-8"))
@@ -129,8 +126,8 @@ class ObserverSetupSequenceTests(unittest.TestCase):
         self.assertEqual(len(connections["observer"].sent), 2)
         self.assertEqual(len(connections["player-1"].sent), 1)
         self.assertEqual(len(connections["player-2"].sent), 1)
-        self.assertEqual(saved["setup_sequence"]["inputs"]["observer_player_id"], 0)
-        self.assertEqual(saved["setup_sequence"]["inputs"]["player_port_sets"]["player-1"]["server_ports"], [5002, 5003])
+        self.assertEqual(saved["setup_sequence"]["inputs"]["observed_player_id"], 0)
+        self.assertEqual(saved["setup_sequence"]["inputs"]["shared_port_set_layout"]["server_ports"], [5002, 5003])
 
     def test_duplicate_player_ids_fail_after_both_player_joins(self):
         connections = self.setup_inputs()
@@ -141,9 +138,9 @@ class ObserverSetupSequenceTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "duplicate player IDs"):
                 run_observer_setup_sequence(
                     connections, self.protocol, map_path="trusted/test.SC2Map",
-                    observer_player_id=0,
+                    observed_player_id=0,
                     player_races={"player-1": self.terran, "player-2": self.zerg},
-                    player_port_sets=self.port_sets(), timeout=2.0,
+                    port_set=self.port_set(), timeout=2.0,
                     manifest=manifest, manifest_path=path,
                 )
             saved = json.loads(path.read_text(encoding="utf-8"))
@@ -368,17 +365,14 @@ class ProbePreflightTests(unittest.TestCase):
                 startup_timeout=30, shutdown_timeout=10, setup_sequence=True,
             )
             missing = validate_config(ProbeConfig(**base))
-            self.assertTrue(any("observer player ID" in error for error in missing))
+            self.assertTrue(any("observed player ID" in error for error in missing))
             valid = dict(
-                **base, observer_player_id=0,
+                **base, observed_player_id=0,
                 player_races={"player-1": 1, "player-2": 2},
-                player_port_sets={
-                    "player-1": {"server_ports": (5100, 5101), "client_ports": ((5102, 5103),)},
-                    "player-2": {"server_ports": (5104, 5105), "client_ports": ((5106, 5107),)},
-                },
+                port_set={"server_ports": (5100, 5101), "client_ports": ((5102, 5103), (5104, 5105))},
             )
             self.assertFalse(validate_config(ProbeConfig(**valid)))
-            valid["player_port_sets"]["player-2"]["server_ports"] = (5102, 5105)
+            valid["port_set"]["client_ports"] = ((5101, 5103),)
             self.assertTrue(any("overlap" in error for error in validate_config(ProbeConfig(**valid))))
 
     def test_execution_is_opt_in(self):
