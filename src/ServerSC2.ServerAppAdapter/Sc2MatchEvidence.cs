@@ -200,7 +200,7 @@ public static class Sc2MatchEvidenceValidator
             }
         }
 
-        if (terminal.Length == expected.Length && terminal.All(p => !string.IsNullOrWhiteSpace(p.ParticipantId)))
+        if (terminal.Length == expected.Length && terminal.All(p => p is not null && !string.IsNullOrWhiteSpace(p.ParticipantId)))
         {
             foreach (var participant in expected)
             {
