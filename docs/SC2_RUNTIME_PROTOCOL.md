@@ -127,7 +127,7 @@ Reference: https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.
 
 The descriptor-backed `build_create_game_request` helper can now construct a CreateGame request with one or more explicit Participant entries followed by native SC2 Computer entries. Each Computer entry requires an explicit race and difficulty; an optional AI build can also be supplied. The first race-ladder profile uses one Terran bot Participant and one Computer opponent whose race is selected per match. Tests serialize the request against the pinned generated protobuf descriptors and assert the exact PlayerSetup types/race/difficulty/build fields.
 
-This is a request-builder capability only. The current live `--setup-sequence` still follows the two-player observer/player/player path; it does not yet launch the one-bot-plus-Computer topology or prove the target SC2 build accepts it. A dedicated opt-in live sequence is the next implementation step.
+The opt-in `--race-match` mode now launches two SC2 processes and attempts this observer-hosted one-Participant-plus-Computer setup, then captures GameInfo and fog-respecting observations from observer and player endpoints. Important: the player JoinGame is sent by the probe harness itself. This mode does **not** launch the SingularityBot runner and is protocol-setup evidence only, not a played bot match. A real run still needs the pinned SC2 build and trusted map; the probe does not yet prove visibility isolation, terminal results, or replay validity.
 
 ## Post-join GameInfo and Observation capture
 
