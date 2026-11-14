@@ -126,6 +126,13 @@ class ObserverSetupSequenceTests(unittest.TestCase):
         self.assertEqual(len(connections["observer"].sent), 2)
         self.assertEqual(len(connections["player-1"].sent), 1)
         self.assertEqual(len(connections["player-2"].sent), 1)
+        create = self.protocol.Request.FromString(connections["observer"].sent[0])
+        player_one = self.protocol.Request.FromString(connections["player-1"].sent[0])
+        player_two = self.protocol.Request.FromString(connections["player-2"].sent[0])
+        self.assertEqual(create.WhichOneof("request"), "create_game")
+        self.assertNotEqual(connections["player-1"].sent[0], connections["observer"].sent[0])
+        self.assertEqual(player_one.join_game.server_ports, player_two.join_game.server_ports)
+        self.assertEqual(list(player_one.join_game.client_ports), list(player_two.join_game.client_ports))
         self.assertEqual(saved["setup_sequence"]["inputs"]["observed_player_id"], 0)
         self.assertEqual(saved["setup_sequence"]["inputs"]["shared_port_set_layout"]["server_ports"], [5002, 5003])
 
@@ -162,9 +169,9 @@ class ObserverSetupSequenceTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 run_observer_setup_sequence(
                     connections, self.protocol, map_path="trusted/test.SC2Map",
-                    observer_player_id=0,
+                    observed_player_id=0,
                     player_races={"player-1": self.terran, "player-2": self.zerg},
-                    player_port_sets=self.port_sets(), timeout=2.0,
+                    port_set=self.port_set(), timeout=2.0,
                     manifest=manifest, manifest_path=path,
                 )
             saved = json.loads(path.read_text(encoding="utf-8"))
