@@ -223,9 +223,7 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
             // cannot certify a match outcome. Until an observer-backed evidence source
             // supplies validated terminal results AND validated replay evidence, remain
             // non-terminal rather than manufacturing a Completed state.
-            var state = Sc2MatchCompletionGate.Evaluate(
-                authoritativeResultsValidated: false,
-                replayEvidenceValidated: false);
+            var state = Sc2MatchCompletionGate.Evaluate(evidence: null);
             return new(session.MatchId, session.SessionId, state, DateTimeOffset.UtcNow);
         }
         finally
@@ -391,15 +389,13 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
 
 
 /// <summary>
-/// Fail-closed lifecycle gate. Runner stdout is deliberately not an input: only independently
-/// validated host-authoritative terminal results and replay evidence can complete a match.
+/// Fail-closed lifecycle gate. Runner stdout and caller-supplied booleans are deliberately
+/// not inputs: only a passing result created by Sc2MatchEvidenceValidator can complete a match.
 /// </summary>
 public static class Sc2MatchCompletionGate
 {
-    public static GameSessionState Evaluate(
-        bool authoritativeResultsValidated,
-        bool replayEvidenceValidated) =>
-        authoritativeResultsValidated && replayEvidenceValidated
+    public static GameSessionState Evaluate(Sc2MatchEvidenceValidation? evidence) =>
+        evidence is { IsValid: true }
             ? GameSessionState.Completed
             : GameSessionState.Running;
 }
