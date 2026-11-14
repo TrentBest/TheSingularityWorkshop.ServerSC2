@@ -7,7 +7,7 @@ from pathlib import Path
 from sc2_probe import (
     ProbeConfig, build_create_game_request, build_join_game_request,
     exchange_protocol, evaluate_setup_response, evaluate_version_gate, perform_setup_exchange,
-    run_observer_setup_sequence, parse_args, parse_port_pair, validate_config,
+    run_observer_setup_sequence, run_probe, parse_args, parse_port_pair, validate_config,
 )
 
 
