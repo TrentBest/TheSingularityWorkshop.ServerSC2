@@ -7,7 +7,7 @@ from pathlib import Path
 from sc2_probe import (
     ProbeConfig, build_create_game_request, build_join_game_request,
     exchange_protocol, evaluate_setup_response, evaluate_version_gate, perform_setup_exchange,
-    run_observer_setup_sequence, run_single_bot_computer_setup_sequence,
+    run_participant_hosted_setup_sequence, run_single_bot_computer_setup_sequence,
     run_probe, capture_post_join_observations,
     parse_args, parse_port_pair, validate_config,
 )
@@ -74,7 +74,7 @@ class QueuedFakeSocket:
         return self.responses.pop(0)
 
 
-class ObserverSetupSequenceTests(unittest.TestCase):
+class ParticipantHostedSetupSequenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from s2clientprotocol import common_pb2, sc2api_pb2
@@ -106,12 +106,12 @@ class ObserverSetupSequenceTests(unittest.TestCase):
     def port_set(self):
         return {"server_ports": (5002, 5003), "client_ports": ((5004, 5005),)}
 
-    def test_candidate_sequence_records_explicit_inputs_and_orders_observer_first(self):
+    def test_runner_contract_sequence_records_participant_a_create_and_observer_last(self):
         connections = self.setup_inputs()
         manifest = {"protocol_exchanges": [], "gates": {}}
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
-            result = run_observer_setup_sequence(
+            result = run_participant_hosted_setup_sequence(
                 connections, self.protocol, map_path="trusted/test.SC2Map",
                 observed_player_id=0,
                 player_races={"player-1": self.terran, "player-2": self.zerg},
@@ -143,7 +143,7 @@ class ObserverSetupSequenceTests(unittest.TestCase):
         manifest = {"protocol_exchanges": [], "gates": {}}
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
-            result = run_observer_setup_sequence(
+            result = run_participant_hosted_setup_sequence(
                 connections, self.protocol, map_path="trusted/test.SC2Map",
                 observed_player_id=0,
                 player_races={"player-1": self.terran, "player-2": self.zerg},
@@ -162,7 +162,7 @@ class ObserverSetupSequenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
             with self.assertRaisesRegex(RuntimeError, "duplicate player IDs"):
-                run_observer_setup_sequence(
+                run_participant_hosted_setup_sequence(
                     connections, self.protocol, map_path="trusted/test.SC2Map",
                     observed_player_id=0,
                     player_races={"player-1": self.terran, "player-2": self.zerg},
@@ -186,7 +186,7 @@ class ObserverSetupSequenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
             with self.assertRaises(RuntimeError):
-                run_observer_setup_sequence(
+                run_participant_hosted_setup_sequence(
                     connections, self.protocol, map_path="trusted/test.SC2Map",
                     observed_player_id=0,
                     player_races={"player-1": self.terran, "player-2": self.zerg},
