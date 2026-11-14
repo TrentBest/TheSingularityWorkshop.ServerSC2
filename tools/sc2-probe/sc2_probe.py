@@ -716,6 +716,64 @@ def evaluate_version_gate(protocol: dict[str, dict[str, Any]], expected_version:
     }
 
 
+def cleanup_processes(
+    processes: list[tuple[str, subprocess.Popen[bytes]]],
+    shutdown_timeout: float,
+    *,
+    platform_name: str | None = None,
+) -> list[dict[str, Any]]:
+    """Boundedly stop every process, recording races and failures without aborting cleanup."""
+    platform_name = os.name if platform_name is None else platform_name
+    outcomes: list[dict[str, Any]] = []
+
+    for role, process in reversed(processes):
+        outcome: dict[str, Any] = {"role": role, "pid": process.pid}
+        if process.poll() is not None:
+            outcome["already_exited"] = True
+            outcome["exit_code"] = process.returncode
+            outcomes.append(outcome)
+            continue
+
+        graceful_error: OSError | None = None
+        try:
+            if platform_name == "nt":
+                process.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=shutdown_timeout)
+            outcome["terminated"] = True
+        except subprocess.TimeoutExpired:
+            pass
+        except OSError as exc:
+            graceful_error = exc
+            # The process may have exited after poll() but before signal delivery.
+            if process.poll() is not None:
+                outcome["already_exited"] = True
+                outcome["graceful_signal_error"] = str(exc)
+            else:
+                outcome["graceful_signal_error"] = str(exc)
+
+        if not outcome.get("terminated") and not outcome.get("already_exited"):
+            try:
+                if platform_name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                        check=False, capture_output=True, timeout=shutdown_timeout,
+                    )
+                else:
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=shutdown_timeout)
+                outcome["killed_after_timeout" if graceful_error is None else "force_killed_after_signal_error"] = True
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                outcome["terminated"] = False
+                outcome["error"] = str(exc)
+
+        outcome["exit_code"] = process.poll()
+        outcomes.append(outcome)
+
+    return outcomes
+
+
 def run_probe(config: ProbeConfig) -> int:
     config.output_dir.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, Any] = {
@@ -896,34 +954,9 @@ def run_probe(config: ProbeConfig) -> int:
         manifest["error"] = str(exc)
         return_code = 1
     finally:
-        for role, process in reversed(processes):
-            outcome: dict[str, Any] = {"role": role, "pid": process.pid}
-            if process.poll() is None:
-                try:
-                    if os.name == "nt":
-                        process.send_signal(signal.CTRL_BREAK_EVENT)
-                    else:
-                        os.killpg(process.pid, signal.SIGTERM)
-                    process.wait(timeout=config.shutdown_timeout)
-                    outcome["terminated"] = True
-                except subprocess.TimeoutExpired:
-                    try:
-                        if os.name == "nt":
-                            subprocess.run(
-                                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                                check=False, capture_output=True, timeout=config.shutdown_timeout,
-                            )
-                        else:
-                            os.killpg(process.pid, signal.SIGKILL)
-                        process.wait(timeout=config.shutdown_timeout)
-                        outcome["killed_after_timeout"] = True
-                    except (OSError, subprocess.TimeoutExpired) as exc:
-                        outcome["terminated"] = False
-                        outcome["error"] = str(exc)
-            else:
-                outcome["already_exited"] = True
-            outcome["exit_code"] = process.poll()
-            manifest["cleanup"]["processes"].append(outcome)
+        manifest["cleanup"]["processes"].extend(
+            cleanup_processes(processes, config.shutdown_timeout)
+        )
         manifest["cleanup"]["complete"] = all(
             item.get("terminated", item.get("already_exited", False))
             or item.get("killed_after_timeout", False)
