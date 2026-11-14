@@ -16,7 +16,7 @@ This is a local development ladder, not public matchmaking, a rated ladder, or a
 - Opponent: one native SC2 Computer player, with race fixed per match.
 - Format: 1v1; one bot-controlled participant and one SC2 Computer participant.
 - Schedule: three matches, one per opponent race, run sequentially.
-- Bot race: explicitly pinned to a race supported by the selected SingularityBot build; do not assume Random or multi-race support.
+- Bot race: Terran for the first pass, matching SingularityBot's current product objective; do not assume Random or multi-race support.
 - Map and Computer difficulty: trusted host configuration, identical across all three matches.
 - Game version, data build, map identity/hash, bot build hash, opponent race, and difficulty: recorded in each match manifest.
 - No client-supplied executable paths, map paths, process arguments, or port assignments.
@@ -62,9 +62,9 @@ The observer must not be replaced by the bot process, and the bot must not recei
 
 ## Current readiness
 
-**Not runnable yet.** The repository's current production supervisor is still the legacy two-player competitor-host implementation. The opt-in probe can attempt the two-player observer setup and capture post-join GameInfo/Observation snapshots, but it has not yet been run against a real local SC2 installation. It also does not yet implement the one-Participant-plus-Computer setup, controlled visibility proof, authoritative terminal result capture, replay save/validation, or the three-match scheduler.
+**Not runnable yet.** The repository's current production supervisor is still the legacy two-player competitor-host implementation. The opt-in probe can attempt the two-player observer setup and capture post-join GameInfo/Observation snapshots, but it has not yet been run against a real local SC2 installation. The probe's schema-backed CreateGame builder now supports one Participant plus an explicitly raced/difficulty-configured Computer opponent, with regression tests. That request shape is not yet wired into a dedicated one-bot live sequence. Controlled visibility proof, authoritative terminal result capture, replay save/validation, and the three-match scheduler also remain outstanding.
 
-The SingularityBot repository README currently describes the bot as a foundation in progress and explicitly says it is not yet a working or ladder-ready bot. That is a separate readiness gate; this ServerSC2 repository must not change its strategy or bot-side protocol adapter.
+The SingularityBot development branch is actively implementing a Terran economy/production player and has regression coverage plus a headless runner entry point. Its roadmap still distinguishes automated tests from match-verified behavior: the full opening, movement, tactical safety, and intended outcome need a real SC2 match/replay. That is a separate readiness gate; this ServerSC2 repository must not change its strategy or bot-side protocol adapter.
 
 ## Implementation order
 
