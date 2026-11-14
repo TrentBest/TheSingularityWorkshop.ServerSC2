@@ -401,14 +401,15 @@ static Sc2MatchEvidence ValidMatchEvidence()
         ]);
     var now = DateTimeOffset.UtcNow;
     return new Sc2MatchEvidence(
-        1, "match-001", "session-001", "0.1.0", "5.0.14",
+        1, "match-001", "session-001", "observer-session-001", 1234, "Ended",
+        "0.1.0", "5.0.14", "data-version", 12345, 12345,
         "AbyssalReefLE", "AbyssalReefLE", "completed", now, now.AddSeconds(1),
         Array.AsReadOnly(expected), Array.AsReadOnly(terminal), replay);
 }
 
 static Sc2MatchEvidenceValidation ValidateEvidence(Sc2MatchEvidence evidence) =>
     Sc2MatchEvidenceValidator.Validate(
-        evidence, "match-001", "session-001", "0.1.0", "5.0.14",
+        evidence, "match-001", "session-001", "observer-session-001", "0.1.0", "5.0.14",
         "AbyssalReefLE", "AbyssalReefLE",
         [
             new Sc2ExpectedParticipant("p1", "team-a", "build-a", new string('a', 64)),
@@ -534,6 +535,14 @@ static void EvidenceRejectsProvenanceFailures()
     var wrongSession = evidence with { SessionId = "other-session" };
     Assert(ValidateEvidence(wrongSession).Diagnostics.Contains("evidence.session-id.mismatch"),
         "Session provenance mismatch was not rejected.");
+
+    var wrongObserver = evidence with { ObserverSessionId = "unrelated-observer" };
+    Assert(ValidateEvidence(wrongObserver).Diagnostics.Contains("evidence.observer-identity.invalid"),
+        "Observer session identity mismatch was not rejected.");
+
+    var nonTerminal = evidence with { TerminalStatus = "InGame" };
+    Assert(ValidateEvidence(nonTerminal).Diagnostics.Contains("evidence.terminal-status.invalid"),
+        "A non-terminal SC2 status was accepted as match completion.");
 
     var wrongBuild = evidence with
     {
