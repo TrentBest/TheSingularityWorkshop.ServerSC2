@@ -69,7 +69,7 @@ Reference: https://github.com/Blizzard/s2client-api/blob/master/src/sc2api/sc2_c
 
 ## Observer-host target topology (not yet proven)
 
-The agreed target topology is one neutral simulation-host/observer process plus one player SC2 process and one bot runner per entrant. The observer alone creates the game, joins as an observer, monitors authoritative lifecycle/results, and captures replay evidence. Competitors never receive CreateGame authority or observer/global vision.
+The current candidate topology is one neutral simulation-host/observer process plus one player SC2 process and one bot runner per entrant. Under the runner contract, Participant A—not the observer—creates the game and joins as Participant A; Participant B joins independently; the observer joins separately and is intended to monitor lifecycle/results and capture replay evidence. Competitors must not receive observer/global vision. This topology and its information boundaries remain unproven on a live SC2 build.
 
 The following remain explicit live proof questions:
 
@@ -95,7 +95,7 @@ The current bootstrap implementation is deliberately narrower than the full acce
 - it writes a versioned `evidence.json`, per-role ping metadata, and stdout/stderr logs;
 - cleanup is bounded and attempts to terminate process groups/process trees.
 
-With the default invocation, this is only a three-process/API-bootstrap proof. When the additional `--setup-sequence` flag and all explicit setup inputs are supplied, the live probe also attempts the candidate CreateGame → observer JoinGame → player JoinGame sequence described below. After all four setup acknowledgements, the opt-in live path requests GameInfo and a raw Observation from the observer and both player connections. Observation requests explicitly keep disable_fog=false; exact protobuf exchanges and compact roster/unit visibility summaries are persisted. This verifies that all three channels answer these requests, but it does not yet validate information isolation: a controlled map/scenario with known hidden units and expected visibility is still required. Terminal results and replay save/validation also remain unimplemented. CI runs only preflight and fake-protocol tests and never launches SC2.
+With the default invocation, this is only a three-process/API-bootstrap proof. When the additional `--setup-sequence` flag and all explicit setup inputs are supplied, the live probe follows the runner-contract candidate: Participant A CreateGame and JoinGame, Participant B JoinGame, then independent observer JoinGame. After all four setup acknowledgements, the opt-in live path requests GameInfo and a raw Observation from the observer and both player connections. Observation requests explicitly keep disable_fog=false; exact protobuf exchanges and compact roster/unit visibility summaries are persisted. This verifies that all three channels answer these requests, but it does not yet validate information isolation: a controlled map/scenario with known hidden units and expected visibility is still required. Terminal results and replay save/validation also remain unimplemented. CI runs only preflight and fake-protocol tests and never launches SC2.
 
 Install the pinned developer dependencies with `python -m pip install -r tools/sc2-probe/requirements.txt`. The invocation contract is intentionally explicit; do not run it until a trusted local SC2 build/map are selected:
 
@@ -119,7 +119,7 @@ The probe now routes its bootstrap ping through a small transport boundary that 
 
 The protobuf `Request` and `Response` envelopes each define an optional `id` field (field 97). The probe captures these values when present, but does not yet assume the server echoes or assigns them. Blizzard's protocol documentation specifies that responses match requests in their incoming order; the probe therefore keeps exactly one request outstanding per connection and records that FIFO correlation assumption explicitly. This is intentionally conservative: it avoids relying on unverified identifier-echo behavior or introducing pipelining before the probe has tests for ordered multi-request handling.
 
-Transport records are protocol evidence, not proof of game readiness. The default run remains RequestPing-only. The opt-in `--setup-sequence` path attempts CreateGame on the observer process, then observer JoinGame and both player JoinGame requests. After setup, it requests GameInfo and a fog-respecting raw Observation from all three channels, persisting each exact exchange before enforcing its response gate. These snapshots expose roster and unit visibility metadata for later analysis; they do not themselves establish that players are isolated from observer-only information. A controlled visibility scenario, authoritative terminal result capture, and replay validation remain live-proof gates.
+Transport records are protocol evidence, not proof of game readiness. The default run remains RequestPing-only. The opt-in `--setup-sequence` path sends CreateGame and Participant A's JoinGame on the participant-a process, then Participant B's JoinGame, followed by observer JoinGame. After setup, it requests GameInfo and a fog-respecting raw Observation from all three channels, persisting each exact exchange before enforcing its response gate. These snapshots expose roster and unit visibility metadata for later analysis; they do not themselves establish that players are isolated from observer-only information. A controlled visibility scenario, authoritative terminal result capture, and replay validation remain live-proof gates.
 
 Reference: https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.md
 
@@ -127,7 +127,7 @@ Reference: https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.
 
 The descriptor-backed `build_create_game_request` helper can now construct a CreateGame request with one or more explicit Participant entries followed by native SC2 Computer entries. Each Computer entry requires an explicit race and difficulty; an optional AI build can also be supplied. The first race-ladder profile uses one Terran bot Participant and one Computer opponent whose race is selected per match. Tests serialize the request against the pinned generated protobuf descriptors and assert the exact PlayerSetup types/race/difficulty/build fields.
 
-The opt-in `--race-match` mode now launches two SC2 processes and attempts this observer-hosted one-Participant-plus-Computer setup, then captures GameInfo and fog-respecting observations from observer and player endpoints. Important: the player JoinGame is sent by the probe harness itself. This mode does **not** launch the SingularityBot runner and is protocol-setup evidence only, not a played bot match. A real run still needs the pinned SC2 build and trusted map; the probe does not yet prove visibility isolation, terminal results, or replay validity.
+The opt-in `--race-match` mode remains a separate observer-hosted one-Participant-plus-Computer protocol experiment; it is not evidence for the participant-hosted two-player runner contract. It launches two SC2 processes and captures GameInfo and fog-respecting observations from observer and player endpoints. Important: the player JoinGame is sent by the probe harness itself. This mode does **not** launch the SingularityBot runner and is protocol-setup evidence only, not a played bot match. A real run still needs the pinned SC2 build and trusted map; the probe does not yet prove visibility isolation, terminal results, or replay validity.
 
 ## Post-join GameInfo and Observation capture
 
@@ -153,7 +153,7 @@ The probe must:
 1. Preflight the executable, installation, map, output directory, version metadata, and required local port range before starting processes.
 2. Allocate a collision-free local listener and candidate multiplayer PortSet block; report every selected port and fail on overlap.
 3. Launch a dedicated host process and two isolated player processes, each with its own SC2 API listener.
-4. Exercise the exact candidate CreateGame → observer join → player join sequence, recording every request, response, SC2 status transition, process exit, and timeout.
+4. Exercise the runner-contract candidate sequence: Participant A CreateGame and JoinGame, Participant B JoinGame, then independent observer JoinGame; record every request, response, SC2 status transition, process exit, and timeout.
 5. Assert that the observer is acknowledged as observer (including the observed player ID) and both players are acknowledged with distinct player IDs.
 6. Collect observations from observer and player channels sufficient to test that players cannot see observer-only information.
 7. Wait for a real terminal SC2 state, obtain result data from the observer channel, request/save a replay, and validate the replay file exists and is readable.
