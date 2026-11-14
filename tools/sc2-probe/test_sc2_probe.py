@@ -643,7 +643,8 @@ class SingleBotComputerSetupSequenceTests(unittest.TestCase):
                 timeout=2.0, manifest=manifest, manifest_path=path,
             )
             self.assertTrue(result["passed"])
-            self.assertEqual(result["strategy"], "observer-hosted-single-bot-vs-computer")
+            self.assertEqual(result["strategy"], "observer-hosted-single-participant-vs-computer-protocol-probe")
+            self.assertFalse(result["singularitybot_runner_launched"])
             create = self.protocol.Request()
             create.ParseFromString(observer.sent[0])
             setups = create.create_game.player_setup
