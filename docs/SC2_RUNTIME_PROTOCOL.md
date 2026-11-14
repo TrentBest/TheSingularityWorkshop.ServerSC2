@@ -192,12 +192,13 @@ The CI test injects a CreateGame MultiplayerUnsupported response and verifies th
 The probe now has a separately gated live setup mode. The default invocation remains
 ping-only. Live setup requires the additional explicit `--setup-sequence` flag and,
 in addition to the normal trusted executable/install/map/version/output inputs, requires
-an explicit `observed_player_id` (the game player ID whose perspective the
-observer joins—not an ID assigned to the observer), both player race enum values, one
-shared server PortSet pair, and the repeated shared client PortSet pairs. Standard
-Melee maps assign player IDs starting at 1; custom maps may differ, so the value must
-come from the selected map's actual player identity contract rather than a hard-coded
-zero or an assumed observer ID. The same complete PortSet layout is serialized into both player
+an explicit `observed_player_id` (the observer-perspective selector, not an ID
+assigned to the observer), both player race enum values, one shared server PortSet
+pair, and the repeated shared client PortSet pairs. The protocol also defines observer
+perspective 0 as "Everyone" for the separate observer-perspective action, but that does
+not establish that `RequestJoinGame.observed_player_id = 0` has the same semantics.
+The probe records the exact supplied value and leaves its accepted meaning as a live
+proof gate; it does not reject 0 or infer that the observer is observing all players. The same complete PortSet layout is serialized into both player
 JoinGame requests, matching the Blizzard coordinator's shared port-layout behavior.
 No port arithmetic, race, observed-player identity, or PortSet is inferred. All
 explicit ports are range-checked, mutually disjoint, and checked against the three
@@ -209,10 +210,9 @@ connections and sends CreateGame only on the observer connection, followed by ob
 JoinGame and the two player JoinGame requests. Every request/response byte sequence and
 structured acknowledgement is persisted before proceeding; the first failed gate stops
 the sequence. The two player JoinGame acknowledgements must also contain distinct player
-IDs, and the requested `observed_player_id` must match one of those acknowledged IDs.
-Duplicate IDs or an observer target outside the joined participants fail the sequence
-and are persisted as a separate identity gate. The setup mode is still opt-in only,
-and CI never launches SC2.
+IDs. The identity gate records the supplied `observed_player_id`, but deliberately
+does not infer its observer-perspective semantics from the participant IDs. The setup
+mode is still opt-in only, and CI never launches SC2.
 
 Example PowerShell shape (the port values below are placeholders, not a recommended or
 validated layout):
