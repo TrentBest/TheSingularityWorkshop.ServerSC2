@@ -30,9 +30,9 @@ class ProbeConfig:
     startup_timeout: float
     shutdown_timeout: float
     setup_sequence: bool = False
-    observer_player_id: int | None = None
+    observed_player_id: int | None = None
     player_races: dict[str, int] | None = None
-    player_port_sets: dict[str, dict[str, Any]] | None = None
+    port_set: dict[str, Any] | None = None
 
 
 def utc_now() -> str:
@@ -54,38 +54,34 @@ def validate_config(config: ProbeConfig) -> list[str]:
     if config.startup_timeout <= 0 or config.shutdown_timeout <= 0:
         errors.append("Startup and shutdown timeouts must be positive")
     if config.setup_sequence:
-        if config.observer_player_id is None or not 0 <= config.observer_player_id <= 0xFFFFFFFF:
-            errors.append("Setup sequence requires an explicit uint32 observer player ID")
+        if config.observed_player_id is None or not 0 <= config.observed_player_id <= 0xFFFFFFFF:
+            errors.append("Setup sequence requires an explicit uint32 observed player ID")
         if config.player_races is None or set(config.player_races) != {"player-1", "player-2"}:
             errors.append("Setup sequence requires explicit races for both players")
-        if config.player_port_sets is None or set(config.player_port_sets) != {"player-1", "player-2"}:
-            errors.append("Setup sequence requires explicit PortSets for both players")
-        elif config.player_port_sets is not None:
+        if config.port_set is None:
+            errors.append("Setup sequence requires one explicit shared SC2 PortSet layout")
+        else:
             flattened: list[int] = []
             try:
-                for role in ("player-1", "player-2"):
-                    ports = config.player_port_sets[role]
-                    pairs = [ports["server_ports"], *ports.get("client_ports", ())]
-                    if any(len(pair) != 2 for pair in pairs):
-                        raise ValueError("PortSet pairs must contain exactly two ports")
-                    flattened.extend(port for pair in pairs for port in pair)
+                pairs = [config.port_set["server_ports"], *config.port_set.get("client_ports", ())]
+                if any(len(pair) != 2 for pair in pairs):
+                    raise ValueError("PortSet pairs must contain exactly two ports")
+                flattened.extend(port for pair in pairs for port in pair)
                 if any(not 1 <= port <= 65535 for port in flattened):
                     errors.append("Every explicit setup port must be between 1 and 65535")
                 if len(flattened) != len(set(flattened)):
-                    errors.append("Explicit setup PortSets overlap across players or within a player")
+                    errors.append("Ports in the shared SC2 PortSet layout must not overlap")
             except (KeyError, TypeError, ValueError):
                 errors.append("Setup sequence requires valid explicit server/client PortSet pairs")
     listener_ports = list(range(config.base_port, config.base_port + 3))
     if len(set(listener_ports)) != 3:
         errors.append("SC2 listener ports overlap")
     ports_to_check = list(listener_ports)
-    if config.setup_sequence and config.player_port_sets is not None:
-        for role in ("player-1", "player-2"):
-            port_config = config.player_port_sets.get(role, {})
-            for pair in [port_config.get("server_ports", ()), *port_config.get("client_ports", ())]:
-                ports_to_check.extend(pair)
+    if config.setup_sequence and config.port_set is not None:
+        for pair in [config.port_set.get("server_ports", ()), *config.port_set.get("client_ports", ())]:
+            ports_to_check.extend(pair)
         if set(listener_ports).intersection(ports_to_check[len(listener_ports):]):
-            errors.append("Explicit setup PortSets overlap SC2 API listener ports")
+            errors.append("Explicit setup PortSet layout overlaps SC2 API listener ports")
     for port in dict.fromkeys(ports_to_check):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             try:
@@ -230,9 +226,9 @@ def run_observer_setup_sequence(
     sc2api_pb2: Any,
     *,
     map_path: str,
-    observer_player_id: int,
+    observed_player_id: int,
     player_races: dict[str, int],
-    player_port_sets: dict[str, dict[str, Any]],
+    port_set: dict[str, Any],
     timeout: float,
     manifest: dict[str, Any],
     manifest_path: Path,
@@ -249,8 +245,8 @@ def run_observer_setup_sequence(
         raise ValueError("Connections must contain exactly observer, player-1, and player-2")
     if set(player_races) != set(player_roles):
         raise ValueError("Explicit player races are required for player-1 and player-2")
-    if set(player_port_sets) != set(player_roles):
-        raise ValueError("Explicit port sets are required for player-1 and player-2")
+    if "server_ports" not in port_set:
+        raise ValueError("One explicit shared server PortSet is required")
     if timeout <= 0:
         raise ValueError("Setup exchange timeout must be positive")
 
@@ -269,16 +265,11 @@ def run_observer_setup_sequence(
         "steps": steps,
         "inputs": {
             "map_path": map_path,
-            "observer_player_id": observer_player_id,
+            "observed_player_id": observed_player_id,
             "player_races": dict(player_races),
-            "player_port_sets": {
-                role: {
-                    "server_ports": list(player_port_sets[role]["server_ports"]),
-                    "client_ports": [
-                        list(pair) for pair in player_port_sets[role].get("client_ports", ())
-                    ],
-                }
-                for role in player_roles
+            "shared_port_set_layout": {
+                "server_ports": list(port_set["server_ports"]),
+                "client_ports": [list(pair) for pair in port_set.get("client_ports", ())],
             },
         },
         "passed": False,
@@ -294,7 +285,7 @@ def run_observer_setup_sequence(
         )
 
         observer_request = build_join_game_request(
-            sc2api_pb2, observed_player_id=observer_player_id
+            sc2api_pb2, observed_player_id=observed_player_id
         )
         perform_setup_exchange(
             connections["observer"], observer_request, sc2api_pb2.Response(),
@@ -303,12 +294,11 @@ def run_observer_setup_sequence(
         )
 
         for role in player_roles:
-            ports = player_port_sets[role]
             player_request = build_join_game_request(
                 sc2api_pb2,
                 race=player_races[role],
-                server_ports=tuple(ports["server_ports"]),
-                client_ports=tuple(tuple(pair) for pair in ports.get("client_ports", ())),
+                server_ports=tuple(port_set["server_ports"]),
+                client_ports=tuple(tuple(pair) for pair in port_set.get("client_ports", ())),
             )
             perform_setup_exchange(
                 connections[role], player_request, sc2api_pb2.Response(),
@@ -488,9 +478,9 @@ def run_probe(config: ProbeConfig) -> int:
             "expected_version": config.expected_version,
             "base_port": config.base_port,
             "setup_sequence_opt_in": config.setup_sequence,
-            "observer_player_id": config.observer_player_id,
+            "observed_player_id": config.observed_player_id,
             "player_races": config.player_races,
-            "player_port_sets": config.player_port_sets,
+            "shared_port_set_layout": config.port_set,
         },
         "map": {"sha256": sha256_file(config.map_path), "size_bytes": config.map_path.stat().st_size},
         "gates": {},
@@ -672,13 +662,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--startup-timeout", type=float, default=90.0)
     parser.add_argument("--shutdown-timeout", type=float, default=15.0)
     parser.add_argument("--setup-sequence", action="store_true", help="Opt in to live CreateGame/observer/player setup after bootstrap gates")
-    parser.add_argument("--observer-player-id", type=int)
+    parser.add_argument("--observed-player-id", "--observer-player-id", dest="observed_player_id", type=int, help="Player ID whose perspective the observer joins")
     parser.add_argument("--player-1-race", type=int)
     parser.add_argument("--player-2-race", type=int)
-    parser.add_argument("--player-1-server-ports", help="Explicit game_port,base_port pair")
-    parser.add_argument("--player-2-server-ports", help="Explicit game_port,base_port pair")
-    parser.add_argument("--player-1-client-ports", action="append", default=[], help="Explicit game_port,base_port pair; repeat as needed")
-    parser.add_argument("--player-2-client-ports", action="append", default=[], help="Explicit game_port,base_port pair; repeat as needed")
+    parser.add_argument("--server-ports", help="Shared explicit game_port,base_port pair passed to both player joins")
+    parser.add_argument("--client-ports", action="append", default=[], help="Shared explicit game_port,base_port pair; repeat for each client PortSet")
     return parser.parse_args(argv)
 
 
@@ -710,30 +698,26 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.setup_sequence:
         setup_required = {
-            "--observer-player-id": args.observer_player_id,
+            "--observed-player-id": args.observed_player_id,
             "--player-1-race": args.player_1_race,
             "--player-2-race": args.player_2_race,
-            "--player-1-server-ports": args.player_1_server_ports,
-            "--player-2-server-ports": args.player_2_server_ports,
+            "--server-ports": args.server_ports,
         }
         missing_setup = [name for name, value in setup_required.items() if value is None]
         if missing_setup:
             print("Setup sequence requires: " + ", ".join(missing_setup), file=sys.stderr)
             return 2
         try:
-            player_port_sets = {
-                "player-1": {"server_ports": parse_port_pair(args.player_1_server_ports), "client_ports": tuple(parse_port_pair(v) for v in args.player_1_client_ports)},
-                "player-2": {"server_ports": parse_port_pair(args.player_2_server_ports), "client_ports": tuple(parse_port_pair(v) for v in args.player_2_client_ports)},
-            }
+            port_set = {"server_ports": parse_port_pair(args.server_ports), "client_ports": tuple(parse_port_pair(v) for v in args.client_ports)}
         except argparse.ArgumentTypeError as exc:
             print(str(exc), file=sys.stderr)
             return 2
         player_races = {"player-1": args.player_1_race, "player-2": args.player_2_race}
     else:
-        if any(value is not None for value in (args.observer_player_id, args.player_1_race, args.player_2_race, args.player_1_server_ports, args.player_2_server_ports)) or args.player_1_client_ports or args.player_2_client_ports:
+        if any(value is not None for value in (args.observed_player_id, args.player_1_race, args.player_2_race, args.server_ports)) or args.client_ports:
             print("Setup inputs require --setup-sequence.", file=sys.stderr)
             return 2
-        player_port_sets = None
+        port_set = None
         player_races = None
     config = ProbeConfig(
         executable=args.executable.resolve(),
@@ -745,9 +729,9 @@ def main(argv: list[str] | None = None) -> int:
         startup_timeout=args.startup_timeout,
         shutdown_timeout=args.shutdown_timeout,
         setup_sequence=args.setup_sequence,
-        observer_player_id=args.observer_player_id,
+        observed_player_id=args.observed_player_id,
         player_races=player_races,
-        player_port_sets=player_port_sets,
+        port_set=port_set,
     )
     return run_probe(config)
 
