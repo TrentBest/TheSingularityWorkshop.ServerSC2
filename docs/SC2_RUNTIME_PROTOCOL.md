@@ -119,7 +119,7 @@ The probe now routes its bootstrap ping through a small transport boundary that 
 
 The protobuf `Request` and `Response` envelopes each define an optional `id` field (field 97). The probe captures these values when present, but does not yet assume the server echoes or assigns them. Blizzard's protocol documentation specifies that responses match requests in their incoming order; the probe therefore keeps exactly one request outstanding per connection and records that FIFO correlation assumption explicitly. This is intentionally conservative: it avoids relying on unverified identifier-echo behavior or introducing pipelining before the probe has tests for ordered multi-request handling.
 
-Transport records are protocol evidence, not proof of game readiness. The current exchange is still only RequestPing; CreateGame, observer/player joins, lifecycle observations, result capture, and replay validation remain unimplemented live-proof gates.
+Transport records are protocol evidence, not proof of game readiness. The default run remains RequestPing-only. The opt-in `--setup-sequence` path now uses the setup builders and durable response gate to attempt CreateGame on the observer process, then observer JoinGame and both player JoinGame requests. Lifecycle observations, information-isolation evidence, authoritative result capture, and replay validation remain unimplemented live-proof gates.
 
 Reference: https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.md
 
@@ -176,7 +176,7 @@ Target formats include 1v1, 2v2, 3v3, FFA, and multi-team formats such as 2v2v2,
 
 The probe now has a pure response evaluator for the pinned SC2API protobuf descriptors. It rejects an unexpected response oneof, any envelope-level `Response.error` entries, and a populated setup payload error enum. It records the payload error's numeric value and descriptor name, plus the optional SC2 status value without assigning lifecycle meaning to that value.
 
-For a JoinGame response, the evaluator also requires the optional `player_id` acknowledgement to be present and records it. It does not infer observer identity, visibility isolation, team membership, or successful multiplayer topology from that field; those remain separate live assertions. This validation helper is not yet wired into the ping-only `run_probe` sequence.
+For a JoinGame response, the evaluator also requires the optional `player_id` acknowledgement to be present and records it. It does not infer observer identity, visibility isolation, team membership, or successful multiplayer topology from that field; those remain separate live assertions. The response evaluator is wired into the opt-in live setup sequence through the durable setup-exchange wrapper; the default `run_probe` path remains ping-only.
 
 The pinned-schema tests cover CreateGame's `MultiplayerUnsupported` error, missing/present JoinGame player IDs, envelope errors, and wrong response oneofs. These are local response-validation contract tests, not evidence that a live SC2 process accepts either setup request.
 
@@ -185,7 +185,7 @@ The pinned-schema tests cover CreateGame's `MultiplayerUnsupported` error, missi
 
 The probe now has a setup-exchange wrapper that sends one request, evaluates the structured setup response, appends the role-tagged raw protobuf exchange and gate result to the evidence manifest, and writes the manifest before raising on a failed gate. A failed CreateGame or JoinGame acknowledgement therefore remains auditable rather than disappearing behind an exception.
 
-The CI test injects a CreateGame MultiplayerUnsupported response and verifies that the failed gate, payload error name, and exact response bytes are present in the written evidence file before the wrapper raises. This is a local persistence/validation test only; the wrapper is not yet wired to a live SC2 process and does not establish setup acceptance or observer topology.
+The CI test injects a CreateGame MultiplayerUnsupported response and verifies that the failed gate, payload error name, and exact response bytes are present in the written evidence file before the wrapper raises. This is a local persistence/validation test only. The wrapper is now wired into the opt-in live setup sequence, but CI's fake sockets do not establish setup acceptance or observer topology on a real SC2 build.
 
 ## Explicit observer setup sequence
 
@@ -222,10 +222,10 @@ python tools/sc2-probe/sc2_probe.py --execute --setup-sequence `
   --executable <SC2.exe> --install-dir <SC2-install-dir> `
   --map <TrustedMap.SC2Map> --expected-version <pinned-version> `
   --output-dir <probe-output> --base-port 5000 `
-  --observer-player-id <observed-player-id> `
+  --observed-player-id <observed-player-id> `
   --player-1-race <race-enum> --player-2-race <race-enum> `
-  --player-1-server-ports <game-port,base-port> `
-  --player-2-server-ports <game-port,base-port>
+  --server-ports <game-port,base-port> `
+  --client-ports <game-port,base-port>
 ```
 
 The result status `live-setup-sequence-passed` means only that the exact pinned
