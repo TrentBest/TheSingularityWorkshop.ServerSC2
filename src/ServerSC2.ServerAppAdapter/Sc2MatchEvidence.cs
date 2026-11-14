@@ -179,6 +179,9 @@ public static class Sc2MatchEvidenceValidator
                 errors.Add("evidence.replay.game-version-mismatch");
             if (string.IsNullOrWhiteSpace(replay.DataVersion) || replay.DataBuild == 0 || replay.BaseBuild == 0)
                 errors.Add("evidence.replay.build-metadata-missing");
+            else if (!string.Equals(replay.DataVersion, evidence.Sc2DataVersion, StringComparison.Ordinal) ||
+                replay.DataBuild != evidence.Sc2DataBuild || replay.BaseBuild != evidence.Sc2BaseBuild)
+                errors.Add("evidence.replay.sc2-build-metadata-mismatch");
 
             var replayResults = replay.PlayerResults?.ToArray() ?? [];
             if (replayResults.Length != terminal.Length ||
