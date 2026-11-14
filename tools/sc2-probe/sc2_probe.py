@@ -960,6 +960,7 @@ def run_probe(config: ProbeConfig) -> int:
         manifest["cleanup"]["complete"] = all(
             item.get("terminated", item.get("already_exited", False))
             or item.get("killed_after_timeout", False)
+            or item.get("force_killed_after_signal_error", False)
             for item in manifest["cleanup"]["processes"]
         ) and len(manifest["cleanup"]["processes"]) == len(processes)
         manifest["finished_utc"] = utc_now()
