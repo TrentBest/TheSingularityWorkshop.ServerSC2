@@ -380,7 +380,9 @@ def run_single_bot_computer_setup_sequence(
     ]
     sequence = {
         "schema_version": 1,
-        "strategy": "observer-hosted-single-bot-vs-computer",
+        "strategy": "observer-hosted-single-participant-vs-computer-protocol-probe",
+        "singularitybot_runner_launched": False,
+        "player_join_client": "probe harness; not the SingularityBot runner",
         "steps": steps,
         "inputs": {
             "map_path": map_path,
