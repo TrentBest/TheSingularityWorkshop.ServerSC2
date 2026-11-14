@@ -404,7 +404,12 @@ static Sc2MatchEvidence ValidMatchEvidence()
         1, "match-001", "session-001", "observer-session-001", 1234, "Ended",
         "0.1.0", "5.0.14", "data-version", 12345, 12345,
         "AbyssalReefLE", "AbyssalReefLE", "completed", now, now.AddSeconds(1),
-        Array.AsReadOnly(expected), Array.AsReadOnly(terminal), replay);
+        Array.AsReadOnly(expected),
+        [
+            new Sc2ParticipantJoinEvidence("p1", 1, now),
+            new Sc2ParticipantJoinEvidence("p2", 2, now)
+        ],
+        Array.AsReadOnly(terminal), replay);
 }
 
 static Sc2MatchEvidenceValidation ValidateEvidence(Sc2MatchEvidence evidence) =>
@@ -462,6 +467,17 @@ static void EvidenceRejectsParticipantResultFailures()
     };
     Assert(ValidateEvidence(wrongAssignment).Diagnostics.Contains("evidence.terminal-results.assignment-mismatch"),
         "Unknown participant assignment was not rejected.");
+
+    var wrongJoinBinding = evidence with
+    {
+        JoinBindings = Array.AsReadOnly(new[]
+        {
+            evidence.JoinBindings[0] with { Sc2PlayerId = 7 },
+            evidence.JoinBindings[1]
+        })
+    };
+    Assert(ValidateEvidence(wrongJoinBinding).Diagnostics.Contains("evidence.terminal-results.join-binding-mismatch"),
+        "Terminal player ID was not correlated to the host-owned JoinGame binding.");
     Assert(Sc2MatchCompletionGate.Evaluate(ValidateEvidence(missing)) == GameSessionState.Running,
         "Invalid terminal evidence must remain non-completed.");
 }
