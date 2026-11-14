@@ -111,7 +111,7 @@ class ObserverSetupSequenceTests(unittest.TestCase):
             path = Path(directory) / "evidence.json"
             result = run_observer_setup_sequence(
                 connections, self.protocol, map_path="trusted/test.SC2Map",
-                observed_player_id=0,
+                observed_player_id=1,
                 player_races={"player-1": self.terran, "player-2": self.zerg},
                 port_set=self.port_set(), timeout=2.0,
                 manifest=manifest, manifest_path=path,
@@ -133,7 +133,7 @@ class ObserverSetupSequenceTests(unittest.TestCase):
         self.assertNotEqual(connections["player-1"].sent[0], connections["observer"].sent[0])
         self.assertEqual(player_one.join_game.server_ports, player_two.join_game.server_ports)
         self.assertEqual(list(player_one.join_game.client_ports), list(player_two.join_game.client_ports))
-        self.assertEqual(saved["setup_sequence"]["inputs"]["observed_player_id"], 0)
+        self.assertEqual(saved["setup_sequence"]["inputs"]["observed_player_id"], 1)
         self.assertEqual(saved["setup_sequence"]["inputs"]["shared_port_set_layout"]["server_ports"], [5002, 5003])
 
     def test_duplicate_player_ids_fail_after_both_player_joins(self):
@@ -145,7 +145,7 @@ class ObserverSetupSequenceTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "duplicate player IDs"):
                 run_observer_setup_sequence(
                     connections, self.protocol, map_path="trusted/test.SC2Map",
-                    observed_player_id=0,
+                    observed_player_id=1,
                     player_races={"player-1": self.terran, "player-2": self.zerg},
                     port_set=self.port_set(), timeout=2.0,
                     manifest=manifest, manifest_path=path,
@@ -169,7 +169,7 @@ class ObserverSetupSequenceTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 run_observer_setup_sequence(
                     connections, self.protocol, map_path="trusted/test.SC2Map",
-                    observed_player_id=0,
+                    observed_player_id=1,
                     player_races={"player-1": self.terran, "player-2": self.zerg},
                     port_set=self.port_set(), timeout=2.0,
                     manifest=manifest, manifest_path=path,
@@ -254,7 +254,7 @@ class DescriptorBackedRequestBuilderTests(unittest.TestCase):
             server_ports=(5002, 5003), client_ports=((5004, 5005),),
         )
         observer = build_join_game_request(
-            self.protocol, observed_player_id=0,
+            self.protocol, observed_player_id=1,
         )
         self.assertEqual(player.WhichOneof("request"), "join_game")
         self.assertEqual(player.join_game.WhichOneof("participation"), "race")
@@ -265,7 +265,7 @@ class DescriptorBackedRequestBuilderTests(unittest.TestCase):
             [(5004, 5005)],
         )
         self.assertEqual(observer.join_game.WhichOneof("participation"), "observed_player_id")
-        self.assertEqual(observer.join_game.observed_player_id, 0)
+        self.assertEqual(observer.join_game.observed_player_id, 1)
         self.assertFalse(observer.join_game.HasField("server_ports"))
         self.assertEqual(len(observer.join_game.client_ports), 0)
 
@@ -374,7 +374,7 @@ class ProbePreflightTests(unittest.TestCase):
             missing = validate_config(ProbeConfig(**base))
             self.assertTrue(any("observed player ID" in error for error in missing))
             valid = dict(
-                **base, observed_player_id=0,
+                **base, observed_player_id=1,
                 player_races={"player-1": 1, "player-2": 2},
                 port_set={"server_ports": (5100, 5101), "client_ports": ((5102, 5103), (5104, 5105))},
             )
