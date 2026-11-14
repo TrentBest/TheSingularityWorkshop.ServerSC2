@@ -40,8 +40,14 @@ public sealed record Sc2MatchEvidence(
     int SchemaVersion,
     string MatchId,
     string SessionId,
+    string ObserverSessionId,
+    int ObserverProcessId,
+    string TerminalStatus,
     string AdapterVersion,
     string GameVersion,
+    string Sc2DataVersion,
+    uint Sc2DataBuild,
+    uint Sc2BaseBuild,
     string MapId,
     string MapName,
     string Outcome,
@@ -75,6 +81,7 @@ public static class Sc2MatchEvidenceValidator
         Sc2MatchEvidence evidence,
         string expectedMatchId,
         string expectedSessionId,
+        string expectedObserverSessionId,
         string expectedAdapterVersion,
         string expectedGameVersion,
         string expectedMapId,
@@ -92,8 +99,15 @@ public static class Sc2MatchEvidenceValidator
         if (evidence.SchemaVersion != 1) errors.Add("evidence.schema-version.unsupported");
         if (!string.Equals(evidence.MatchId, expectedMatchId, StringComparison.Ordinal)) errors.Add("evidence.match-id.mismatch");
         if (!string.Equals(evidence.SessionId, expectedSessionId, StringComparison.Ordinal)) errors.Add("evidence.session-id.mismatch");
+        if (!string.Equals(evidence.ObserverSessionId, expectedObserverSessionId, StringComparison.Ordinal) ||
+            evidence.ObserverProcessId <= 0)
+            errors.Add("evidence.observer-identity.invalid");
+        if (!string.Equals(evidence.TerminalStatus, "Ended", StringComparison.Ordinal))
+            errors.Add("evidence.terminal-status.invalid");
         if (!string.Equals(evidence.AdapterVersion, expectedAdapterVersion, StringComparison.Ordinal)) errors.Add("evidence.adapter-version.mismatch");
         if (!string.Equals(evidence.GameVersion, expectedGameVersion, StringComparison.Ordinal)) errors.Add("evidence.game-version.mismatch");
+        if (string.IsNullOrWhiteSpace(evidence.Sc2DataVersion) || evidence.Sc2DataBuild == 0 || evidence.Sc2BaseBuild == 0)
+            errors.Add("evidence.sc2-build-metadata.missing");
         if (!string.Equals(evidence.MapId, expectedMapId, StringComparison.Ordinal)) errors.Add("evidence.map-id.mismatch");
         if (!string.Equals(evidence.MapName, expectedMapName, StringComparison.Ordinal)) errors.Add("evidence.map-name.mismatch");
         if (!string.Equals(evidence.Outcome, "completed", StringComparison.Ordinal)) errors.Add("evidence.outcome.invalid");
@@ -104,6 +118,7 @@ public static class Sc2MatchEvidenceValidator
         var expected = expectedParticipants.ToArray();
         var actual = evidence.ExpectedParticipants?.ToArray() ?? [];
         if (expected.Length < 2 || actual.Length != expected.Length ||
+            expected.Any(p => p is null) || actual.Any(p => p is null) ||
             expected.Select(p => p.ParticipantId).Distinct(StringComparer.Ordinal).Count() != expected.Length ||
             actual.Select(p => p.ParticipantId).Distinct(StringComparer.Ordinal).Count() != actual.Length)
         {
@@ -135,13 +150,14 @@ public static class Sc2MatchEvidenceValidator
         var terminal = evidence.TerminalResults?.ToArray() ?? [];
         var replay = evidence.Replay;
         if (terminal.Length != expected.Length ||
+            terminal.Any(p => p is null) ||
             terminal.Any(p => p.Sc2PlayerId == 0) ||
             terminal.Select(p => p.Sc2PlayerId).Distinct().Count() != terminal.Length ||
             terminal.Select(p => p.ParticipantId).Distinct(StringComparer.Ordinal).Count() != terminal.Length)
             errors.Add("evidence.terminal-results.identity-invalid");
 
         var allowedResults = new HashSet<string>(["Victory", "Defeat", "Tie"], StringComparer.Ordinal);
-        if (terminal.Any(p => !allowedResults.Contains(p.Result)))
+        if (terminal.Any(p => p is null || !allowedResults.Contains(p.Result)))
             errors.Add("evidence.terminal-results.value-invalid");
 
         if (replay is null)
@@ -166,9 +182,10 @@ public static class Sc2MatchEvidenceValidator
 
             var replayResults = replay.PlayerResults?.ToArray() ?? [];
             if (replayResults.Length != terminal.Length ||
+                replayResults.Any(p => p is null) ||
                 replayResults.Any(p => p.Sc2PlayerId == 0) ||
                 replayResults.Select(p => p.Sc2PlayerId).Distinct().Count() != replayResults.Length ||
-                replayResults.Any(p => !allowedResults.Contains(p.Result)))
+                replayResults.Any(p => p is null || !allowedResults.Contains(p.Result)))
             {
                 errors.Add("evidence.replay.player-results.invalid");
             }
