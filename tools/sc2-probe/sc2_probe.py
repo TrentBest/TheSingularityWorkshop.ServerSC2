@@ -589,9 +589,9 @@ def run_probe(config: ProbeConfig) -> int:
                 run_observer_setup_sequence(
                     live_connections, sc2api_pb2,
                     map_path=str(config.map_path),
-                    observer_player_id=config.observer_player_id,
+                    observed_player_id=config.observed_player_id,
                     player_races=config.player_races,
-                    player_port_sets=config.player_port_sets,
+                    port_set=config.port_set,
                     timeout=min(10.0, config.startup_timeout),
                     manifest=manifest,
                     manifest_path=config.output_dir / "evidence.json",
