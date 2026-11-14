@@ -68,6 +68,30 @@ class CleanupProcessTests(unittest.TestCase):
             (raced.pid, __import__("signal").SIGTERM),
         ])
 
+    def test_force_kill_race_records_process_that_exited_after_timeout(self):
+        import signal
+        from unittest.mock import patch
+
+        process = CleanupProcess(404)
+
+        def killpg(pid, sig):
+            if sig == signal.SIGTERM:
+                return
+            if sig == signal.SIGKILL:
+                process.returncode = 0
+                raise ProcessLookupError("process exited before force kill")
+            raise AssertionError("unexpected signal")
+
+        with patch("sc2_probe.os.killpg", side_effect=killpg):
+            outcomes = cleanup_processes(
+                [("late-exit", process)], 0.1, platform_name="posix"
+            )
+
+        self.assertTrue(outcomes[0]["already_exited"])
+        self.assertIn("force_signal_error", outcomes[0])
+        self.assertEqual(outcomes[0]["exit_code"], 0)
+
+
     def test_signal_error_while_process_remains_alive_attempts_force_kill(self):
         import signal
         from unittest.mock import patch
