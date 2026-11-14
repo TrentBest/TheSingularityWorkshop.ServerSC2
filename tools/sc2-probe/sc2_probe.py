@@ -358,13 +358,16 @@ def summarize_observation(response: Any) -> dict[str, Any]:
     """Capture raw unit visibility metadata; this is not an isolation verdict."""
     if not response.HasField("observation"):
         raise ValueError("Observation response payload is missing")
-    observation = response.observation
+    response_observation = response.observation
+    if not response_observation.HasField("observation"):
+        raise ValueError("Observation payload is missing its observation state")
+    observation = response_observation.observation
     summary: dict[str, Any] = {
         "game_loop": observation.game_loop if observation.HasField("game_loop") else None,
         "raw_data_present": observation.HasField("raw_data"),
         "unit_count": 0,
         "units": [],
-        "player_result_count": len(response.player_result),
+        "player_result_count": len(response_observation.player_result),
     }
     if observation.HasField("raw_data"):
         for unit in observation.raw_data.units:
