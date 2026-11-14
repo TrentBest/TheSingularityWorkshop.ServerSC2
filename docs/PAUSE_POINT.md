@@ -2,71 +2,49 @@
 
 ## Current state
 
-- Repository work is on development; branches are intended to remain exactly master and development.
-- ServerSC2.Core models a scaled multiplayer port reservation block for one observer plus N player clients. This is reservation planning, not live SC2 PortSet proof or an OS socket reservation.
-- ServerSC2.ServerAppAdapter implements ServerApp.Core's IGameSessionAdapter contract through a source project reference.
-- The current Sc2ProcessSessionRuntime is still the legacy two-player competitor-host implementation: two SC2 processes, two runners, and CreateGame authority assigned to one participant. Runner-emitted result markers are diagnostics only and cannot produce Completed. The fail-closed completion gate requires independently validated host-authoritative terminal results AND replay evidence; neither evidence source is wired yet.
-- The current adapter/runtime explicitly reject participant counts other than two. Team IDs are carried in launch records but the runtime does not implement team-aware SC2 setup or format-aware results.
-- Sc2MatchProcessPlan describes one neutral observer plus N participant SC2 clients and N bot runners. It validates pinned adapter/game/map metadata, participant identity/team/build SHA-256/listener ports, unique IDs/ports, observer-only CreateGame authority, and the complete multiplayer port block. It snapshots caller-owned participant collections before validation. This plan is not consumed by the process supervisor.
-- ISc2BotRunnerResolver is only the trusted artifact-resolution boundary. Its implementation must resolve immutable build IDs and verify each artifact against its admitted SHA-256; this repository does not yet provide the artifact store/resolver.
-- Contract checks cover profile/lease behavior, adapter assignment mapping, wrong-game rejection, startup-failure lease cleanup, mismatched runtime identity, observer authority isolation, participant scaling, port/build boundaries, required runtime metadata, mutable-input snapshotting, and null participant rejection.
-- CI compiles the process supervisor and runs contract checks; it does not launch SC2 or prove protocol behavior.
+- Active work is on `development`; the repository currently has exactly `master` and `development`.
+- The current production `Sc2ProcessSessionRuntime` is still the legacy two-player competitor-host implementation: two SC2 processes, two runners, and CreateGame authority assigned to one participant. It is not the observer-host target.
+- Runner `SC2_JOINED` markers are used for readiness/player-ID correlation. Runner `SC2_RESULT` markers are diagnostic only. The runtime's completion gate is deliberately fail-closed: it remains Running until independently validated host-authoritative terminal results AND validated replay evidence are supplied. Neither evidence source is wired into production runtime yet.
+- The production runtime still requires exactly two participants. Team IDs and the observer-oriented process plan do not make the supervisor format-general.
+- `Sc2MatchProcessPlan` is a validated intermediate contract for one neutral observer plus N player SC2 clients and N runners. It is not consumed by the production supervisor.
+- `ISc2BotRunnerResolver` is only a trusted resolution boundary. A production implementation must resolve immutable build IDs and verify each artifact against its admitted SHA-256 before launch.
+- The port lease model scales observer-plus-participant reservations, but reservations are process-local; they are not OS socket reservations or proof that SC2 accepts the candidate PortSet layout.
+- No live SC2 observer-host match, controlled-visibility proof, terminal-result capture, replay validation, or full process-cleanup proof has been established.
 
-## Agreed target architecture
+## Standalone SC2 protocol probe
 
-ServerSC2 is an open host for SC2-compatible bot builds. It must not require a bot to use SingularityBot.
+The opt-in developer harness is implemented under `tools/sc2-probe/`. It uses pinned developer-only dependencies (`s2clientprotocol==5.0.17.98310.0` and `websocket-client==1.9.2`); these are not ServerSC2 production dependencies.
 
-A match assignment defines N entrants, immutable build identities, a competition format, and team grouping. The target topology is one dedicated simulation host/observer plus N player SC2 processes and N independently supervised bot runners:
+The probe has distinct evidence levels:
 
-1. Dedicated simulation host / observer: creates the multiplayer game, joins as observer, monitors authoritative lifecycle, and captures result/replay evidence.
-2. One player SC2 instance and one runner per entrant.
-3. The observer has no competitor identity. No runner gets CreateGame authority or access to another runner's player endpoint.
-4. Formats include 1v1, 2v2, 3v3, FFA, and multi-team formats such as 2v2v2, once the pinned SC2 build's player/team/port semantics are proven.
+1. **Default bootstrap:** only with explicit `--execute`, preflights trusted paths/ports/version inputs, launches three isolated SC2 processes, sends RequestPing to each API endpoint, records build metadata/logs, and performs bounded cleanup.
+2. **Opt-in setup sequence:** additionally requires `--setup-sequence` and explicit observer perspective, player races, server PortSet, and repeated client PortSets. It attempts observer-hosted CreateGame, observer JoinGame, and both player JoinGame requests; after acknowledgements it captures GameInfo and fog-respecting raw Observation snapshots from all three connections.
+3. **Opt-in race match setup:** `--race-match` attempts one Participant plus a native Computer opponent and captures setup observations. The probe itself joins the player endpoint; it does not launch SingularityBot.
 
-SingularityBot and ExampleBot are development foundations bot authors may choose to use. The generic host contract must also admit independent bots that implement the documented runner and SC2API compatibility requirements.
+These are protocol/bootstrap/setup milestones, not a played SingularityBot match. Successful setup acknowledgements do not prove observer perspective semantics, player information isolation, supported three-client PortSet behavior, terminal results, replay validity, or production readiness. The controlled visibility scenario, authoritative terminal observation, replay capture/metadata cross-check, and complete lifecycle proof remain open. CI uses fake protocol transports and never launches SC2.
 
-This is a target architecture, not live verified. The exact observer join, PortSet scaling, team mapping, and result semantics remain proof gates. See [OBSERVER_HOST_DESIGN.md](OBSERVER_HOST_DESIGN.md) and [SC2_RUNTIME_PROTOCOL.md](SC2_RUNTIME_PROTOCOL.md).
+See [SC2 runtime protocol notes](SC2_RUNTIME_PROTOCOL.md) for exact invocation inputs, request/evidence semantics, and unresolved live questions.
 
-## Observer process-plan status
+## SingularityBot integration boundary
 
-The process-plan contract is a validated intermediate representation, not an executable runtime. It has one observer process at ordinal zero, with no participant identity or participant listener, and exactly one CreateGame authority. Participant SC2 clients have distinct participant identities/listener ports and no CreateGame authority; each participant has one corresponding runner. Contract checks exercise participant counts through the 64-entrant upper bound.
+SingularityBot remains independently owned and must not be modified as a ServerSC2 workaround. The current runner's existing ladder CLI contract is recorded in [the first race ladder plan](FIRST_RACE_LADDER.md): `--GamePort`, `--StartPort`, and `--OpponentId`. This is an observed compatibility detail, not the generic ServerSC2 runner contract. The first planned smoke ladder is one Terran bot against native Computer opponents of Terran, Protoss, and Zerg; it is not a claim that the bot plays all three races or is ladder-ready.
 
-The existing process supervisor remains the old two-client competitor-host implementation. It must not be described as observer-hosted, and the observer plan must not be wired into production launch until a real controller can own CreateGame, observer join/readiness, match lifecycle, and authoritative result/replay capture.
-
-## Live protocol proof
-
-The first implementation increment now exists at `tools/sc2-probe/`: an explicitly opt-in three-process/API bootstrap using Blizzard's generated protobuf package. It preflights trusted paths and listener ports, launches three isolated SC2 processes, sends RequestPing to each API endpoint, records build metadata/logs in a versioned manifest, and performs bounded process cleanup. CI executes only unit tests; it never launches SC2.
-
-This is not yet the CreateGame/observer/player join proof. The PortSet payload, information isolation, authoritative result/replay path, and complete match lifecycle remain unimplemented. A bootstrap pass must not be called an observer-topology pass.
-
-The live proof is the next engineering milestone. [SC2_RUNTIME_PROTOCOL.md](SC2_RUNTIME_PROTOCOL.md) now defines an opt-in standalone probe acceptance contract. It must remain separate from normal CI and production runtime until it can:
-
-- use an exact pinned SC2 build and trusted map;
-- launch a dedicated host plus two isolated player SC2 clients;
-- exercise CreateGame, observer join, and both player joins using an experimentally verified order and complete PortSet payload;
-- prove observer identity and distinct player identities;
-- test player/observer information separation;
-- capture observer-authoritative terminal results and a readable replay;
-- retain versioned machine-readable evidence and raw logs;
-- prove bounded cleanup for success and failure paths.
-
-The probe is not implemented yet. Do not interpret the documented acceptance contract as a working harness or a live result. Its exact protocol client/protobuf implementation choice must be resolved before coding the probe; do not add a guessed protocol dependency or copy a bot-side adapter into ServerSC2.
+ServerSC2 must eventually prove the existing runner against a real supported SC2 installation using immutable build resolution and a compatible trusted port allocation. Do not infer live compatibility from source inspection, fake sockets, or successful protocol setup performed by the probe itself.
 
 ## Next implementation gates
 
-1. Extend the implemented three-process/API bootstrap with a protocol-driven CreateGame and observer/player join sequence, using live-verified PortSet semantics; keep CI-safe preflight/evidence tests separate from live SC2.
-2. Prove dedicated host CreateGame followed by observer join against the pinned SC2 build; confirm all-player observer semantics and join ordering.
-3. Derive and live-verify the complete PortSet footprint for observer plus N player clients.
-4. Confirm SC2 player/team setup and result semantics for 1v1, team matches, FFA, and multi-team formats.
-5. Replace two-participant assumptions with validated variable participant/team records across adapter, lease, runtime, and tests.
-6. Define a generic runner contract independent of SingularityBot-specific CLI flags; test SingularityBot and an independent runner.
-7. Change the process supervisor to one observer plus N player instances and N runners. Remove competitor-host authority.
-8. Implement trusted immutable artifact resolution and SHA-256 verification before any runner launch.
-9. Capture observer-authoritative format-aware results and replay, correlated to all player IDs, entrants, teams, map/game version, and build hashes.
-10. Run live SC2 integration at 1v1 and at least one team/FFA format, then add durable append-oriented session history and idempotent ServerApp result handoff.
+1. Close the standalone probe's live gates: validate the exact observer perspective and PortSet layout on a pinned SC2 build; prove controlled player/observer information separation; observe a real terminal state; save/read/cross-check replay evidence; and prove bounded cleanup on success and failure.
+2. Wire a host-owned observer controller into production only after the live protocol sequence is proven. It must own CreateGame, observer readiness, lifecycle polling, terminal results, and replay capture. Never fall back to competitor-host authority.
+3. Add immutable, versioned evidence bound to match/session IDs, map and SC2 build, participant/player IDs, admitted build IDs and SHA-256s, terminal results, replay identity/hash/size, timestamps, and validation diagnostics. Bound artifact storage and clean up partial writes/cancellation.
+4. Replace fixed-two-participant runtime assumptions only alongside verified SC2 player/team/port semantics and format-aware result validation. Keep the generic runner contract independent of SingularityBot-specific flags.
+5. Implement and test trusted artifact resolution with SHA-256 verification before runner launch.
+6. Publish machine-readable deterministic test results and bounded artifacts for CiAi. The currently verified CI workflow is `.github/workflows/ci.yml`, job `build-and-check`, with lanes `Run SC2 probe preflight tests`, `Build core`, `Build ServerApp adapter`, and `Run contract checks`. Its current artifact is `server-sc2-contract-check-results` (JSON); it does not yet publish TRX. CiAi owns artifact provenance normalization and the CI verdict/handoff.
+7. Run a real SingularityBot runner integration and at least one independent runner through the generic contract. A setup probe that does not launch the runner is not this proof.
 
-## Verification and boundaries
+## Verification and authorization boundaries
 
-CI checks out ServerApp's development source, installs .NET 8, builds ServerSC2.Core and the adapter, and runs contract checks. CI success proves compilation and those contracts, not live SC2 integration. No live SC2 proof has been performed for the observer-host topology or additional match formats.
+The current development CI verifies Python probe tests, .NET builds, and contract checks. It does not launch SC2 and does not prove live protocol behavior. A green workflow is code/contract evidence only.
 
-No NuGet publishing, merge, release, deployment, or branch deletion has been performed. No database or ORM has been introduced.
+Issue [#1](https://github.com/TrentBest/TheSingularityWorkshop.ServerSC2/issues/1) tracks host-authoritative terminal results and replay evidence. CiAi owns CI-provider evidence normalization and verdict/handoff; HeadlessAi consumes the bounded report; the host retains lifecycle, budgets, and authorization.
+
+No merge, package publication, release, deployment, or branch deletion is authorized by this work. No live SC2 support claim should be made until the corresponding live evidence exists.
