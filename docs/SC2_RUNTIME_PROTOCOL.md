@@ -192,9 +192,12 @@ The CI test injects a CreateGame MultiplayerUnsupported response and verifies th
 The probe now has a separately gated live setup mode. The default invocation remains
 ping-only. Live setup requires the additional explicit `--setup-sequence` flag and,
 in addition to the normal trusted executable/install/map/version/output inputs, requires
-an explicit `observed_player_id` (the player whose perspective the observer joins),
-both player race enum values, one shared server PortSet pair, and the repeated shared
-client PortSet pairs. The same complete PortSet layout is serialized into both player
+an explicit `observed_player_id` (the game player ID whose perspective the
+observer joins—not an ID assigned to the observer), both player race enum values, one
+shared server PortSet pair, and the repeated shared client PortSet pairs. Standard
+Melee maps assign player IDs starting at 1; custom maps may differ, so the value must
+come from the selected map's actual player identity contract rather than a hard-coded
+zero or an assumed observer ID. The same complete PortSet layout is serialized into both player
 JoinGame requests, matching the Blizzard coordinator's shared port-layout behavior.
 No port arithmetic, race, observed-player identity, or PortSet is inferred. All
 explicit ports are range-checked, mutually disjoint, and checked against the three
