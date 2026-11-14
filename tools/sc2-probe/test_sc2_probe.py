@@ -558,7 +558,7 @@ class PostJoinObservationCaptureTests(unittest.TestCase):
             player.player_id = 1
             player.type = self.protocol.Participant
         else:
-            observation = response.observation
+            observation = response.observation.observation
             observation.game_loop = 0
             observation.raw_data.SetInParent()
             unit = observation.raw_data.units.add()
@@ -604,7 +604,7 @@ class PostJoinObservationCaptureTests(unittest.TestCase):
             info = self.protocol.Response()
             info.game_info.map_name = "ProbeMap"
             observation = self.protocol.Response()
-            observation.observation.game_loop = 0
+            observation.observation.observation.game_loop = 0
             connections[role] = QueuedFakeSocket([
                 info.SerializeToString(), observation.SerializeToString(),
             ])
