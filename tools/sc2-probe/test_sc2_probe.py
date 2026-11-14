@@ -583,6 +583,7 @@ class SingleBotComputerSetupSequenceTests(unittest.TestCase):
     def response(self, kind, player_id=None, error=None):
         response = self.protocol.Response()
         payload = getattr(response, kind)
+        payload.SetInParent()
         if player_id is not None:
             payload.player_id = player_id
         if error is not None:
