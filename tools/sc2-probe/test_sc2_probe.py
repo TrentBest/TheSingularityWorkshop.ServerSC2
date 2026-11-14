@@ -95,12 +95,12 @@ class ParticipantHostedSetupSequenceTests(unittest.TestCase):
 
     def setup_inputs(self):
         return {
-            "observer": QueuedFakeSocket([
+            "observer": QueuedFakeSocket([self.response("join_game", player_id=0)]),
+            "participant-a": QueuedFakeSocket([
                 self.response("create_game"),
-                self.response("join_game", player_id=0),
+                self.response("join_game", player_id=1),
             ]),
-            "player-1": QueuedFakeSocket([self.response("join_game", player_id=1)]),
-            "player-2": QueuedFakeSocket([self.response("join_game", player_id=2)]),
+            "participant-b": QueuedFakeSocket([self.response("join_game", player_id=2)]),
         }
 
     def port_set(self):
@@ -114,7 +114,7 @@ class ParticipantHostedSetupSequenceTests(unittest.TestCase):
             result = run_participant_hosted_setup_sequence(
                 connections, self.protocol, map_path="trusted/test.SC2Map",
                 observed_player_id=0,
-                player_races={"player-1": self.terran, "player-2": self.zerg},
+                player_races={"participant-a": self.terran, "participant-b": self.zerg},
                 port_set=self.port_set(), timeout=2.0,
                 manifest=manifest, manifest_path=path,
             )
@@ -122,17 +122,18 @@ class ParticipantHostedSetupSequenceTests(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertEqual(
             [(event["role"], event["request_type"]) for event in saved["protocol_exchanges"]],
-            [("observer", "create_game"), ("observer", "join_game"),
-             ("player-1", "join_game"), ("player-2", "join_game")],
+            [("participant-a", "create_game"), ("participant-a", "join_game"),
+             ("participant-b", "join_game"), ("observer", "join_game")],
         )
-        self.assertEqual(len(connections["observer"].sent), 2)
-        self.assertEqual(len(connections["player-1"].sent), 1)
-        self.assertEqual(len(connections["player-2"].sent), 1)
-        create = self.protocol.Request.FromString(connections["observer"].sent[0])
-        player_one = self.protocol.Request.FromString(connections["player-1"].sent[0])
-        player_two = self.protocol.Request.FromString(connections["player-2"].sent[0])
+        self.assertEqual(len(connections["observer"].sent), 1)
+        self.assertEqual(len(connections["participant-a"].sent), 2)
+        self.assertEqual(len(connections["participant-b"].sent), 1)
+        create = self.protocol.Request.FromString(connections["participant-a"].sent[0])
+        player_one = self.protocol.Request.FromString(connections["participant-a"].sent[1])
+        player_two = self.protocol.Request.FromString(connections["participant-b"].sent[0])
         self.assertEqual(create.WhichOneof("request"), "create_game")
-        self.assertNotEqual(connections["player-1"].sent[0], connections["observer"].sent[0])
+        observer_join = self.protocol.Request.FromString(connections["observer"].sent[0])
+        self.assertEqual(observer_join.join_game.WhichOneof("participation"), "observed_player_id")
         self.assertEqual(player_one.join_game.server_ports, player_two.join_game.server_ports)
         self.assertEqual(list(player_one.join_game.client_ports), list(player_two.join_game.client_ports))
         self.assertEqual(saved["setup_sequence"]["inputs"]["observed_player_id"], 0)
@@ -146,7 +147,7 @@ class ParticipantHostedSetupSequenceTests(unittest.TestCase):
             result = run_participant_hosted_setup_sequence(
                 connections, self.protocol, map_path="trusted/test.SC2Map",
                 observed_player_id=0,
-                player_races={"player-1": self.terran, "player-2": self.zerg},
+                player_races={"participant-a": self.terran, "participant-b": self.zerg},
                 port_set=self.port_set(), timeout=2.0,
                 manifest=manifest, manifest_path=path,
             )
@@ -157,7 +158,7 @@ class ParticipantHostedSetupSequenceTests(unittest.TestCase):
 
     def test_duplicate_player_ids_fail_after_both_player_joins(self):
         connections = self.setup_inputs()
-        connections["player-2"] = QueuedFakeSocket([self.response("join_game", player_id=1)])
+        connections["participant-b"] = QueuedFakeSocket([self.response("join_game", player_id=1)])
         manifest = {"protocol_exchanges": [], "gates": {}}
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
@@ -165,23 +166,20 @@ class ParticipantHostedSetupSequenceTests(unittest.TestCase):
                 run_participant_hosted_setup_sequence(
                     connections, self.protocol, map_path="trusted/test.SC2Map",
                     observed_player_id=0,
-                    player_races={"player-1": self.terran, "player-2": self.zerg},
+                    player_races={"participant-a": self.terran, "participant-b": self.zerg},
                     port_set=self.port_set(), timeout=2.0,
                     manifest=manifest, manifest_path=path,
                 )
             saved = json.loads(path.read_text(encoding="utf-8"))
         self.assertFalse(saved["gates"]["setup_player_identity"]["passed"])
-        self.assertEqual(saved["gates"]["setup_player_identity"]["player_ids"], {"player-1": 1, "player-2": 1})
+        self.assertEqual(saved["gates"]["setup_player_identity"]["player_ids"], {"participant-a": 1, "participant-b": 1})
         self.assertFalse(saved["setup_sequence"]["passed"])
 
     def test_observer_join_failure_is_persisted_and_prevents_player_joins(self):
         connections = self.setup_inputs()
         failed_observer_join = self.protocol.Response()
         failed_observer_join.join_game.error = self.protocol.ResponseJoinGame.FeatureUnsupported
-        connections["observer"] = QueuedFakeSocket([
-            self.response("create_game"),
-            failed_observer_join.SerializeToString(),
-        ])
+        connections["observer"] = QueuedFakeSocket([failed_observer_join.SerializeToString()])
         manifest = {"protocol_exchanges": [], "gates": {}}
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
@@ -189,16 +187,16 @@ class ParticipantHostedSetupSequenceTests(unittest.TestCase):
                 run_participant_hosted_setup_sequence(
                     connections, self.protocol, map_path="trusted/test.SC2Map",
                     observed_player_id=0,
-                    player_races={"player-1": self.terran, "player-2": self.zerg},
+                    player_races={"participant-a": self.terran, "participant-b": self.zerg},
                     port_set=self.port_set(), timeout=2.0,
                     manifest=manifest, manifest_path=path,
                 )
             saved = json.loads(path.read_text(encoding="utf-8"))
         self.assertFalse(saved["setup_sequence"]["passed"])
-        self.assertEqual(len(saved["protocol_exchanges"]), 2)
+        self.assertEqual(len(saved["protocol_exchanges"]), 4)
         self.assertEqual(saved["protocol_exchanges"][-1]["setup_gate"]["payload_error_name"], "FeatureUnsupported")
-        self.assertEqual(connections["player-1"].sent, [])
-        self.assertEqual(connections["player-2"].sent, [])
+        self.assertEqual(len(connections["participant-a"].sent), 2)
+        self.assertEqual(len(connections["participant-b"].sent), 1)
 
 
 class ProtocolTransportTests(unittest.TestCase):
@@ -454,7 +452,7 @@ class ProbePreflightTests(unittest.TestCase):
             self.assertTrue(any("observed player ID" in error for error in missing))
             valid = dict(
                 **base, observed_player_id=0,
-                player_races={"player-1": 1, "player-2": 2},
+                player_races={"participant-a": 1, "participant-b": 2},
                 port_set={"server_ports": (5100, 5101), "client_ports": ((5102, 5103), (5104, 5105))},
             )
             self.assertFalse(validate_config(ProbeConfig(**valid)))
@@ -534,13 +532,13 @@ class ProbePreflightTests(unittest.TestCase):
                 "data_build": 12345,
                 "base_build": 12345,
             },
-            "player-1": {
+            "participant-a": {
                 "game_version": "5.0.17.12345",
                 "data_version": "abc",
                 "data_build": 12345,
                 "base_build": 12345,
             },
-            "player-2": {
+            "participant-b": {
                 "game_version": "5.0.17.12345",
                 "data_version": "abc",
                 "data_build": 12345,
@@ -560,13 +558,13 @@ class ProbePreflightTests(unittest.TestCase):
                 "data_build": 12345,
                 "base_build": 12345,
             },
-            "player-1": {
+            "participant-a": {
                 "game_version": "5.0.17.12345",
                 "data_version": "abc",
                 "data_build": 12345,
                 "base_build": 12345,
             },
-            "player-2": {
+            "participant-b": {
                 "game_version": "5.0.17.12345",
                 "data_version": "def",
                 "data_build": 12346,
@@ -586,13 +584,13 @@ class ProbePreflightTests(unittest.TestCase):
                 "data_build": 12345,
                 "base_build": 12345,
             },
-            "player-1": {
+            "participant-a": {
                 "game_version": "5.0.17.12345",
                 "data_version": "abc",
                 "data_build": 12345,
                 "base_build": 12345,
             },
-            "player-2": {
+            "participant-b": {
                 "game_version": "5.0.17.12345",
                 "data_version": "",
                 "data_build": 12345,
@@ -632,7 +630,7 @@ class SingleBotComputerSetupSequenceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "evidence.json"
             result = run_single_bot_computer_setup_sequence(
-                {"observer": observer, "player-1": bot}, self.protocol,
+                {"observer": observer, "participant-a": bot}, self.protocol,
                 map_path="/trusted/maps/test.SC2Map",
                 observed_player_id=0,
                 bot_race=self.terran,
@@ -673,7 +671,7 @@ class SingleBotComputerSetupSequenceTests(unittest.TestCase):
             path = Path(directory) / "evidence.json"
             with self.assertRaisesRegex(RuntimeError, "setup_create_game"):
                 run_single_bot_computer_setup_sequence(
-                    {"observer": observer, "player-1": bot}, self.protocol,
+                    {"observer": observer, "participant-a": bot}, self.protocol,
                     map_path="/trusted/maps/test.SC2Map",
                     observed_player_id=0,
                     bot_race=self.terran,
@@ -722,7 +720,7 @@ class PostJoinObservationCaptureTests(unittest.TestCase):
                 self.response_bytes(role, "game_info"),
                 self.response_bytes(role, "observation"),
             ])
-            for role in ("observer", "player-1", "player-2")
+            for role in ("observer", "participant-a", "participant-b")
         }
         manifest = {"protocol_exchanges": [], "gates": {}}
         with tempfile.TemporaryDirectory() as directory:
@@ -735,7 +733,7 @@ class PostJoinObservationCaptureTests(unittest.TestCase):
             self.assertFalse(result["disable_fog_requested"])
             self.assertFalse(result["information_isolation_validated"])
             self.assertEqual(len(manifest["protocol_exchanges"]), 6)
-            for role in ("observer", "player-1", "player-2"):
+            for role in ("observer", "participant-a", "participant-b"):
                 self.assertEqual(result["roles"][role]["game_info"]["summary"]["map_name"], "ProbeMap")
                 self.assertEqual(result["roles"][role]["observation"]["summary"]["unit_count"], 1)
                 request = self.protocol.Request()
@@ -747,7 +745,7 @@ class PostJoinObservationCaptureTests(unittest.TestCase):
 
     def test_rejects_observation_without_raw_data(self):
         connections = {}
-        for role in ("observer", "player-1", "player-2"):
+        for role in ("observer", "participant-a", "participant-b"):
             info = self.protocol.Response()
             info.game_info.map_name = "ProbeMap"
             observation = self.protocol.Response()
