@@ -335,6 +335,108 @@ def run_observer_setup_sequence(
     return manifest["setup_sequence"]
 
 
+def run_single_bot_computer_setup_sequence(
+    connections: dict[str, Any],
+    sc2api_pb2: Any,
+    *,
+    map_path: str,
+    observed_player_id: int,
+    bot_race: int,
+    computer_race: int,
+    computer_difficulty: int,
+    computer_ai_build: int | None,
+    port_set: dict[str, Any],
+    timeout: float,
+    manifest: dict[str, Any],
+    manifest_path: Path,
+) -> dict[str, Any]:
+    """Create one bot-vs-Computer match through a neutral observer process."""
+    if set(connections) != {"observer", "player-1"}:
+        raise ValueError("Connections must contain exactly observer and player-1")
+    if "server_ports" not in port_set:
+        raise ValueError("One explicit shared server PortSet is required")
+    if timeout <= 0:
+        raise ValueError("Setup exchange timeout must be positive")
+    steps = [
+        {"ordinal": 1, "role": "observer", "request": "create_game"},
+        {"ordinal": 2, "role": "observer", "request": "join_game", "participation": "observed_player_id"},
+        {"ordinal": 3, "role": "player-1", "request": "join_game", "participation": "race"},
+    ]
+    sequence = {
+        "schema_version": 1,
+        "strategy": "observer-hosted-single-bot-vs-computer",
+        "steps": steps,
+        "inputs": {
+            "map_path": map_path,
+            "observed_player_id": observed_player_id,
+            "bot_race": bot_race,
+            "computer_race": computer_race,
+            "computer_difficulty": computer_difficulty,
+            "computer_ai_build": computer_ai_build,
+            "shared_port_set_layout": {
+                "server_ports": list(port_set["server_ports"]),
+                "client_ports": [list(pair) for pair in port_set.get("client_ports", ())],
+            },
+        },
+        "passed": False,
+    }
+    manifest["setup_sequence"] = sequence
+    write_manifest(manifest_path, manifest)
+    initial_exchange_count = len(manifest.get("protocol_exchanges", ()))
+    try:
+        create_request = build_create_game_request(
+            sc2api_pb2, map_path, 1,
+            computer_races=(computer_race,),
+            computer_difficulty=computer_difficulty,
+            computer_ai_build=computer_ai_build,
+        )
+        perform_setup_exchange(
+            connections["observer"], create_request, sc2api_pb2.Response(),
+            "create_game", timeout, role="observer", gate_name="setup_create_game",
+            manifest=manifest, manifest_path=manifest_path,
+        )
+        observer_request = build_join_game_request(
+            sc2api_pb2, observed_player_id=observed_player_id,
+        )
+        perform_setup_exchange(
+            connections["observer"], observer_request, sc2api_pb2.Response(),
+            "join_game", timeout, role="observer", gate_name="setup_observer_join",
+            manifest=manifest, manifest_path=manifest_path,
+        )
+        player_request = build_join_game_request(
+            sc2api_pb2, race=bot_race,
+            server_ports=tuple(port_set["server_ports"]),
+            client_ports=tuple(tuple(pair) for pair in port_set.get("client_ports", ())),
+        )
+        perform_setup_exchange(
+            connections["player-1"], player_request, sc2api_pb2.Response(),
+            "join_game", timeout, role="player-1", gate_name="setup_bot_join",
+            manifest=manifest, manifest_path=manifest_path,
+        )
+        bot_player_id = manifest["gates"]["setup_bot_join"]["join_player_id"]
+        identity_gate = {
+            "passed": bot_player_id is not None,
+            "bot_player_id": bot_player_id,
+            "computer_player_id": None,
+            "computer_player_id_source": "pending_game_info_capture",
+        }
+        manifest.setdefault("gates", {})["setup_player_identity"] = identity_gate
+        write_manifest(manifest_path, manifest)
+        if not identity_gate["passed"]:
+            raise RuntimeError("Bot JoinGame did not return a player ID")
+    except Exception as exc:
+        sequence["error"] = str(exc)
+        sequence["exchange_count_at_failure"] = (
+            len(manifest.get("protocol_exchanges", ())) - initial_exchange_count
+        )
+        write_manifest(manifest_path, manifest)
+        raise
+    sequence["passed"] = True
+    sequence["completed_utc"] = utc_now()
+    write_manifest(manifest_path, manifest)
+    return sequence
+
+
 def summarize_game_info(response: Any) -> dict[str, Any]:
     """Extract roster metadata without treating it as visibility evidence."""
     if not response.HasField("game_info"):
@@ -387,11 +489,11 @@ def capture_post_join_observations(
     timeout: float,
     manifest: dict[str, Any],
     manifest_path: Path,
+    roles: tuple[str, ...] = ("observer", "player-1", "player-2"),
 ) -> dict[str, Any]:
     """Capture GameInfo and fog-respecting Observation snapshots from each role."""
-    roles = ("observer", "player-1", "player-2")
-    if set(connections) != set(roles):
-        raise ValueError("Post-join capture requires observer, player-1, and player-2")
+    if not roles or set(connections) != set(roles):
+        raise ValueError("Post-join capture roles must exactly match supplied connections")
     capture: dict[str, Any] = {
         "schema_version": 1,
         "disable_fog_requested": False,
