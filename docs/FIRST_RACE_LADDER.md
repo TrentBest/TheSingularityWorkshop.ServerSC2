@@ -23,6 +23,18 @@ This is a local development ladder, not public matchmaking, a rated ladder, or a
 
 Each match is a fresh game. The ladder advances only after the previous match has a host-validated terminal result and replay evidence. A failed launch, timeout, missing result, or invalid replay is recorded as infrastructure failure—not a bot loss.
 
+## SingularityBot runner contract
+
+The current SingularityBot development runner is a Terran player. Its headless runner accepts the existing ladder connection arguments:
+
+- `--GamePort <player-sc2-listener-port>`
+- `--StartPort <explicit-shared-port-base>`
+- `--OpponentId <computer-player-id>`
+
+ServerSC2 must create the match on the observer process, discover the native Computer's player ID from SC2 GameInfo, then launch the pinned runner build with those arguments. The runner's existing adapter computes its multiplayer port fields from StartPort; ServerSC2 must supply a compatible, non-overlapping trusted port allocation rather than rewriting that adapter. Runner stdout markers may help diagnose launch/join, but they are not authoritative match results.
+
+The first local integration should use the current Terran bot build against native Computer opponents of Terran, Protoss, and Zerg. This is a three-game race-coverage smoke ladder, not a claim that the bot supports playing as all three races.
+
 ## Required topology
 
 The intended host topology remains one neutral SC2 observer/simulation-host process plus one isolated player SC2 process and one SingularityBot runner. The observer creates the game with exactly one Participant and one Computer PlayerSetup; the observer joins with an explicitly configured observed-player perspective; the SingularityBot runner joins the player process. The Computer race changes between the three matches.
