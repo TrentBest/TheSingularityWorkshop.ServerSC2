@@ -765,8 +765,13 @@ def cleanup_processes(
                 process.wait(timeout=shutdown_timeout)
                 outcome["killed_after_timeout" if graceful_error is None else "force_killed_after_signal_error"] = True
             except (OSError, subprocess.TimeoutExpired) as exc:
-                outcome["terminated"] = False
-                outcome["error"] = str(exc)
+                # A process can also exit between the timeout and force-kill signal.
+                if isinstance(exc, OSError) and process.poll() is not None:
+                    outcome["already_exited"] = True
+                    outcome["force_signal_error"] = str(exc)
+                else:
+                    outcome["terminated"] = False
+                    outcome["error"] = str(exc)
 
         outcome["exit_code"] = process.poll()
         outcomes.append(outcome)
