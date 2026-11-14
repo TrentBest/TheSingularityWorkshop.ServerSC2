@@ -95,7 +95,7 @@ The current bootstrap implementation is deliberately narrower than the full acce
 - it writes a versioned `evidence.json`, per-role ping metadata, and stdout/stderr logs;
 - cleanup is bounded and attempts to terminate process groups/process trees.
 
-This is only a three-process/API-bootstrap proof. It does **not** yet issue CreateGame, join as observer or player, derive/verify the multiplayer PortSet, test information isolation, capture terminal results, or save/validate a replay. Its success status must never be interpreted as observer-topology proof or match readiness. CI runs only the preflight unit tests and never launches SC2.
+With the default invocation, this is only a three-process/API-bootstrap proof. When the additional `--setup-sequence` flag and all explicit setup inputs are supplied, the live probe also attempts the candidate CreateGame → observer JoinGame → player JoinGame sequence described below. Even an accepted setup sequence does not test information isolation, capture terminal results, or save/validate a replay. CI runs only preflight and fake-protocol tests and never launches SC2.
 
 Install the pinned developer dependencies with `python -m pip install -r tools/sc2-probe/requirements.txt`. The invocation contract is intentionally explicit; do not run it until a trusted local SC2 build/map are selected:
 
@@ -111,7 +111,7 @@ The isolated probe now has pure builders for the two setup request shapes, using
 - JoinGame selects exactly one participation oneof: `race` for a player or `observed_player_id` for an observer. It enables the raw interface and accepts optional `server_ports` / repeated `client_ports` only as explicit caller-supplied pairs.
 - Port pairs are checked for valid TCP port ranges and overlap. The builder does not allocate ports, extrapolate Blizzard's coordinator layout, or populate deprecated `shared_port`.
 
-Descriptor-backed tests assert the actual protobuf oneof names, field values, and repeated PortSet serialization for the pinned package. These are request-construction tests only: they do not establish that the SC2 server accepts the observer join, that the candidate port layout works, or that the topology is live. The builders are not yet wired into `run_probe`; the bootstrap command remains ping-only until the exact request sequence and live proof gates are implemented.
+Descriptor-backed tests assert the actual protobuf oneof names, field values, and repeated PortSet serialization for the pinned package. These are request-construction tests only: they do not establish that the SC2 server accepts the observer join, that the candidate port layout works, or that the topology is live. The builders are used by the opt-in live setup sequence. CI verifies request construction against the pinned descriptors and exercises orchestration with fake sockets; neither is evidence that a live SC2 build accepts these requests.
 
 ## Protocol transport and exchange evidence
 
@@ -192,10 +192,13 @@ The CI test injects a CreateGame MultiplayerUnsupported response and verifies th
 The probe now has a separately gated live setup mode. The default invocation remains
 ping-only. Live setup requires the additional explicit `--setup-sequence` flag and,
 in addition to the normal trusted executable/install/map/version/output inputs, requires
-an explicit observer player ID, both player race enum values, and a server PortSet pair
-for each player. Repeated client PortSet pairs may also be supplied per player. No
-port arithmetic, race, observer identity, or PortSet is inferred. All explicit ports
-are range-checked and must be globally disjoint across both players.
+an explicit `observed_player_id` (the player whose perspective the observer joins),
+both player race enum values, one shared server PortSet pair, and the repeated shared
+client PortSet pairs. The same complete PortSet layout is serialized into both player
+JoinGame requests, matching the Blizzard coordinator's shared port-layout behavior.
+No port arithmetic, race, observed-player identity, or PortSet is inferred. All
+explicit ports are range-checked, mutually disjoint, and checked against the three
+local SC2 API listener ports.
 
 The live sequence is reached only after all three launched processes answer RequestPing
 and pass the complete identical-build fingerprint gate. It then opens persistent API
