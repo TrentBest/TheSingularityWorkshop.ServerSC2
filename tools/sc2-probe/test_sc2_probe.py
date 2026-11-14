@@ -743,6 +743,30 @@ class PostJoinObservationCaptureTests(unittest.TestCase):
             self.assertTrue(persisted["post_join_capture"]["passed"])
             self.assertEqual(persisted["post_join_capture"]["roles"]["observer"]["observation"]["summary"]["units"][0]["tag"], 123)
 
+    def test_rejects_post_join_response_with_envelope_error(self):
+        connections = {}
+        for role in ("observer", "player-1", "player-2"):
+            info = self.protocol.Response()
+            info.game_info.map_name = "ProbeMap"
+            info.error.append("synthetic SC2API envelope error")
+            observation = self.protocol.Response()
+            observation.observation.observation.game_loop = 0
+            observation.observation.observation.raw_data.SetInParent()
+            connections[role] = QueuedFakeSocket([
+                info.SerializeToString(), observation.SerializeToString(),
+            ])
+        manifest = {"protocol_exchanges": [], "gates": {}}
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, "GameInfo response gate"):
+                capture_post_join_observations(
+                    connections, self.protocol, timeout=2.0,
+                    manifest=manifest, manifest_path=Path(directory) / "evidence.json",
+                )
+        gate = manifest["gates"]["observer_game_info"]
+        self.assertFalse(gate["passed"])
+        self.assertEqual(gate["envelope_errors"], ["synthetic SC2API envelope error"])
+        self.assertEqual(len(manifest["protocol_exchanges"]), 1)
+
     def test_rejects_observation_without_raw_data(self):
         connections = {}
         for role in ("observer", "player-1", "player-2"):
