@@ -309,15 +309,19 @@ def run_observer_setup_sequence(
             role: manifest["gates"][f"setup_{role}_join"]["join_player_id"]
             for role in player_roles
         }
+        distinct_player_ids = player_ids["player-1"] != player_ids["player-2"]
+        observed_player_exists = observed_player_id in player_ids.values()
         identity_gate = {
-            "passed": player_ids["player-1"] != player_ids["player-2"],
+            "passed": distinct_player_ids and observed_player_exists,
             "player_ids": player_ids,
-            "distinct_player_ids": player_ids["player-1"] != player_ids["player-2"],
+            "distinct_player_ids": distinct_player_ids,
+            "observed_player_id": observed_player_id,
+            "observed_player_id_matches_joined_player": observed_player_exists,
         }
         manifest.setdefault("gates", {})["setup_player_identity"] = identity_gate
         write_manifest(manifest_path, manifest)
         if not identity_gate["passed"]:
-            raise RuntimeError("SC2 acknowledged duplicate player IDs for the two player connections")
+            raise RuntimeError("SC2 player identity gate failed: duplicate player IDs or observed_player_id not among joined players")
     except Exception as exc:
         manifest["setup_sequence"]["error"] = str(exc)
         manifest["setup_sequence"]["exchange_count_at_failure"] = len(
