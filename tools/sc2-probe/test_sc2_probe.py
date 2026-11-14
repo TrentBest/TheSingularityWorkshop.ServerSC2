@@ -136,6 +136,25 @@ class ObserverSetupSequenceTests(unittest.TestCase):
         self.assertEqual(saved["setup_sequence"]["inputs"]["observed_player_id"], 1)
         self.assertEqual(saved["setup_sequence"]["inputs"]["shared_port_set_layout"]["server_ports"], [5002, 5003])
 
+    def test_observed_player_id_must_match_one_of_the_joined_players(self):
+        connections = self.setup_inputs()
+        manifest = {"protocol_exchanges": [], "gates": {}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            with self.assertRaisesRegex(RuntimeError, "observed_player_id not among joined players"):
+                run_observer_setup_sequence(
+                    connections, self.protocol, map_path="trusted/test.SC2Map",
+                    observed_player_id=9,
+                    player_races={"player-1": self.terran, "player-2": self.zerg},
+                    port_set=self.port_set(), timeout=2.0,
+                    manifest=manifest, manifest_path=path,
+                )
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        gate = saved["gates"]["setup_player_identity"]
+        self.assertFalse(gate["passed"])
+        self.assertFalse(gate["observed_player_id_matches_joined_player"])
+        self.assertFalse(saved["setup_sequence"]["passed"])
+
     def test_duplicate_player_ids_fail_after_both_player_joins(self):
         connections = self.setup_inputs()
         connections["player-2"] = QueuedFakeSocket([self.response("join_game", player_id=1)])
