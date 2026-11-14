@@ -7,7 +7,7 @@ from pathlib import Path
 from sc2_probe import (
     ProbeConfig, build_create_game_request, build_join_game_request,
     exchange_protocol, evaluate_setup_response, evaluate_version_gate, perform_setup_exchange,
-    run_observer_setup_sequence, run_probe, capture_post_join_observations,
+    run_observer_setup_sequence, run_single_bot_computer_setup_sequence,\n    run_probe, capture_post_join_observations,
     parse_args, parse_port_pair, validate_config,
 )
 
@@ -569,6 +569,90 @@ class ProbePreflightTests(unittest.TestCase):
         result = evaluate_version_gate(protocol, "5.0.17")
         self.assertFalse(result["passed"])
         self.assertFalse(result["all_processes_report_same_complete_build"])
+
+
+class SingleBotComputerSetupSequenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from s2clientprotocol import common_pb2, sc2api_pb2
+        cls.protocol = sc2api_pb2
+        cls.terran = common_pb2.Terran
+        cls.zerg = common_pb2.Zerg
+
+    def response(self, kind, player_id=None, error=None):
+        response = self.protocol.Response()
+        payload = getattr(response, kind)
+        if player_id is not None:
+            payload.player_id = player_id
+        if error is not None:
+            payload.error = error
+        return response.SerializeToString()
+
+    def test_observer_creates_one_bot_one_computer_and_bot_joins(self):
+        observer = QueuedFakeSocket([
+            self.response("create_game"),
+            self.response("join_game", player_id=0),
+        ])
+        bot = QueuedFakeSocket([self.response("join_game", player_id=1)])
+        manifest = {"gates": {}, "protocol_exchanges": []}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            result = run_single_bot_computer_setup_sequence(
+                {"observer": observer, "player-1": bot}, self.protocol,
+                map_path="/trusted/maps/test.SC2Map",
+                observed_player_id=0,
+                bot_race=self.terran,
+                computer_race=self.zerg,
+                computer_difficulty=self.protocol.Medium,
+                computer_ai_build=self.protocol.Macro,
+                port_set={"server_ports": (5100, 5101), "client_ports": ((5102, 5103),)},
+                timeout=2.0, manifest=manifest, manifest_path=path,
+            )
+            self.assertTrue(result["passed"])
+            self.assertEqual(result["strategy"], "observer-hosted-single-bot-vs-computer")
+            create = self.protocol.Request()
+            create.ParseFromString(observer.sent[0])
+            setups = create.create_game.player_setup
+            self.assertEqual(len(setups), 2)
+            self.assertEqual([item.type for item in setups], [self.protocol.Participant, self.protocol.Computer])
+            self.assertEqual(setups[1].race, self.zerg)
+            self.assertEqual(setups[1].difficulty, self.protocol.Medium)
+            join = self.protocol.Request()
+            join.ParseFromString(bot.sent[0])
+            self.assertEqual(join.join_game.race, self.terran)
+            self.assertEqual(join.join_game.server_ports.game_port, 5100)
+            self.assertTrue(manifest["gates"]["setup_player_identity"]["passed"])
+            self.assertEqual(len(manifest["protocol_exchanges"]), 3)
+            self.assertTrue(json.loads(path.read_text(encoding="utf-8"))["setup_sequence"]["passed"])
+
+    def test_computer_setup_failure_is_persisted_before_raise(self):
+        observer = QueuedFakeSocket([
+            self.response(
+                "create_game",
+                error=self.protocol.ResponseCreateGame.MultiplayerUnsupported,
+            ),
+        ])
+        bot = QueuedFakeSocket([])
+        manifest = {"gates": {}, "protocol_exchanges": []}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            with self.assertRaisesRegex(RuntimeError, "setup_create_game"):
+                run_single_bot_computer_setup_sequence(
+                    {"observer": observer, "player-1": bot}, self.protocol,
+                    map_path="/trusted/maps/test.SC2Map",
+                    observed_player_id=0,
+                    bot_race=self.terran,
+                    computer_race=self.zerg,
+                    computer_difficulty=self.protocol.Medium,
+                    computer_ai_build=None,
+                    port_set={"server_ports": (5100, 5101)},
+                    timeout=2.0, manifest=manifest, manifest_path=path,
+                )
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            self.assertFalse(saved["gates"]["setup_create_game"]["passed"])
+            self.assertEqual(len(saved["protocol_exchanges"]), 1)
+            self.assertEqual(len(bot.sent), 0)
+
 
 
 class PostJoinObservationCaptureTests(unittest.TestCase):
