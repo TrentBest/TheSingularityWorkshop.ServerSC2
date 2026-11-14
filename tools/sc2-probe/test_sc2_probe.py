@@ -8,10 +8,88 @@ from sc2_probe import (
     ProbeConfig, build_create_game_request, build_join_game_request,
     exchange_protocol, evaluate_setup_response, evaluate_version_gate, perform_setup_exchange,
     run_participant_hosted_setup_sequence, run_single_bot_computer_setup_sequence,
-    run_probe, capture_post_join_observations,
+    run_probe, capture_post_join_observations, cleanup_processes,
     parse_args, parse_port_pair, validate_config,
 )
 
+
+
+class CleanupProcess:
+    def __init__(self, pid, exit_after_signal=False):
+        self.pid = pid
+        self.returncode = None
+        self.exit_after_signal = exit_after_signal
+        self.signals = []
+
+    def poll(self):
+        return self.returncode
+
+    def send_signal(self, value):
+        self.signals.append(value)
+        if self.exit_after_signal:
+            self.returncode = 0
+
+    def wait(self, timeout):
+        if self.returncode is None:
+            raise __import__("subprocess").TimeoutExpired("process", timeout)
+        return self.returncode
+
+
+class CleanupProcessTests(unittest.TestCase):
+    def test_signal_race_records_already_exited_and_continues_other_processes(self):
+        import subprocess
+        from unittest.mock import patch
+
+        raced = CleanupProcess(101)
+        survivor = CleanupProcess(202)
+        calls = []
+
+        def killpg(pid, sig):
+            calls.append((pid, sig))
+            if pid == raced.pid and sig == __import__("signal").SIGTERM:
+                raced.returncode = 0
+                raise ProcessLookupError("process exited before signal")
+            if pid == survivor.pid and sig == __import__("signal").SIGTERM:
+                survivor.returncode = 0
+                return
+            raise AssertionError("unexpected force-kill")
+
+        with patch("sc2_probe.os.killpg", side_effect=killpg):
+            outcomes = cleanup_processes(
+                [("raced", raced), ("survivor", survivor)], 0.1, platform_name="posix"
+            )
+
+        self.assertEqual([item["role"] for item in outcomes], ["survivor", "raced"])
+        self.assertTrue(outcomes[0]["terminated"])
+        self.assertTrue(outcomes[1]["already_exited"])
+        self.assertIn("graceful_signal_error", outcomes[1])
+        self.assertEqual(calls, [
+            (survivor.pid, __import__("signal").SIGTERM),
+            (raced.pid, __import__("signal").SIGTERM),
+        ])
+
+    def test_signal_error_while_process_remains_alive_attempts_force_kill(self):
+        import signal
+        from unittest.mock import patch
+
+        process = CleanupProcess(303)
+
+        def killpg(pid, sig):
+            if sig == signal.SIGTERM:
+                raise PermissionError("graceful signal denied")
+            if sig == signal.SIGKILL:
+                process.returncode = -9
+                return
+            raise AssertionError("unexpected signal")
+
+        with patch("sc2_probe.os.killpg", side_effect=killpg):
+            outcomes = cleanup_processes(
+                [("blocked", process)], 0.1, platform_name="posix"
+            )
+
+        self.assertTrue(outcomes[0]["force_killed_after_signal_error"])
+        self.assertEqual(outcomes[0]["exit_code"], -9)
+        self.assertNotIn("error", outcomes[0])
 
 
 class FakeRequest:
