@@ -217,7 +217,7 @@ The probe now has a setup-exchange wrapper that sends one request, evaluates the
 
 The CI test injects a CreateGame MultiplayerUnsupported response and verifies that the failed gate, payload error name, and exact response bytes are present in the written evidence file before the wrapper raises. This is a local persistence/validation test only. The wrapper is now wired into the opt-in live setup sequence, but CI's fake sockets do not establish setup acceptance or observer topology on a real SC2 build.
 
-## Explicit observer setup sequence
+## Participant-hosted setup sequence (runner-contract candidate)
 
 The probe now has a separately gated live setup mode. The default invocation remains
 ping-only. Live setup requires the additional explicit `--setup-sequence` flag and,
@@ -236,13 +236,16 @@ local SC2 API listener ports.
 
 The live sequence is reached only after all three launched processes answer RequestPing
 and pass the complete identical-build fingerprint gate. It then opens persistent API
-connections and sends CreateGame only on the observer connection, followed by observer
-JoinGame and the two player JoinGame requests. Every request/response byte sequence and
+connections and follows the SingularityBot runner contract: Participant A sends CreateGame
+and joins as a participant, Participant B joins from its own process, and the independent
+observer joins from its own process last. Every request/response byte sequence and
 structured acknowledgement is persisted before proceeding; the first failed gate stops
-the sequence. The two player JoinGame acknowledgements must also contain distinct player
-IDs. The identity gate records the supplied `observed_player_id`, but deliberately
-does not infer its observer-perspective semantics from the participant IDs. The setup
-mode is still opt-in only, and CI never launches SC2.
+the sequence. The two participant JoinGame acknowledgements must also contain distinct
+player IDs. The identity gate records the supplied `observed_player_id`, but deliberately
+does not infer its observer-perspective semantics from the participant IDs. This is a
+candidate contract-alignment sequence, not live proof of three-client support, PortSet
+semantics, or observer perspective. The setup mode is still opt-in only, and CI never
+launches SC2.
 
 Example PowerShell shape (the port values below are placeholders, not a recommended or
 validated layout):
