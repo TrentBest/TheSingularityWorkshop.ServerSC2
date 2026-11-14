@@ -27,7 +27,11 @@ var checks = new (string Name, Action Run)[]
     ("observer process plan preserves multi-team and FFA assignments", ObserverPlanPreservesTeamAssignments),
     ("observer process plan rejects duplicate participant identities and ports", ObserverPlanRejectsDuplicateIdentityAndPorts),
     ("runner result markers cannot complete a match", RunnerMarkersCannotCompleteMatch),
-    ("completion requires authoritative results and replay evidence", CompletionRequiresBothEvidenceArtifacts)
+    ("only complete assignment-bound observation and replay evidence completes a match", ValidEvidenceCompletesMatch),
+    ("evidence rejects missing or mismatched participant results", EvidenceRejectsParticipantResultFailures),
+    ("evidence rejects undecided and invalid replay results", EvidenceRejectsInvalidResults),
+    ("evidence rejects replay digest, size, map, and build mismatches", EvidenceRejectsReplayFailures),
+    ("evidence rejects incomplete provenance and assignment mismatch", EvidenceRejectsProvenanceFailures)
 };
 
 var failures = new List<string>();
@@ -375,24 +379,180 @@ static void ObserverPlanRejectsDuplicateIdentityAndPorts()
     AssertThrows(() => Sc2MatchProcessPlan.Create(duplicatePort), "distinct listener port");
 }
 
+static Sc2MatchEvidence ValidMatchEvidence()
+{
+    var expected = new[]
+    {
+        new Sc2ExpectedParticipant("p1", "team-a", "build-a", new string('a', 64)),
+        new Sc2ExpectedParticipant("p2", "team-b", "build-b", new string('b', 64))
+    };
+    var terminal = new[]
+    {
+        new Sc2ParticipantResultEvidence("p1", 1, "Victory"),
+        new Sc2ParticipantResultEvidence("p2", 2, "Defeat")
+    };
+    var replay = new Sc2ReplayEvidence(
+        "replay-001", "artifacts/replay.SC2Replay", 1024,
+        new string('c', 64), new string('c', 64),
+        "AbyssalReefLE", "5.0.14", "data-version", 12345, 12345,
+        [
+            new Sc2ReplayPlayerResult(2, "Defeat"),
+            new Sc2ReplayPlayerResult(1, "Victory")
+        ]);
+    var now = DateTimeOffset.UtcNow;
+    return new Sc2MatchEvidence(
+        1, "match-001", "session-001", "0.1.0", "5.0.14",
+        "AbyssalReefLE", "AbyssalReefLE", "completed", now, now.AddSeconds(1),
+        Array.AsReadOnly(expected), Array.AsReadOnly(terminal), replay);
+}
+
+static Sc2MatchEvidenceValidation ValidateEvidence(Sc2MatchEvidence evidence) =>
+    Sc2MatchEvidenceValidator.Validate(
+        evidence, "match-001", "session-001", "0.1.0", "5.0.14",
+        "AbyssalReefLE", "AbyssalReefLE",
+        [
+            new Sc2ExpectedParticipant("p1", "team-a", "build-a", new string('a', 64)),
+            new Sc2ExpectedParticipant("p2", "team-b", "build-b", new string('b', 64))
+        ]);
+
 static void RunnerMarkersCannotCompleteMatch()
 {
-    // Two runner-emitted SC2_RESULT markers are intentionally not represented in the
-    // completion gate. They may be retained for diagnostics, but cannot complete a match.
-    Assert(Sc2MatchCompletionGate.Evaluate(false, false) == GameSessionState.Running,
+    // Runner stdout is not accepted by the completion gate. No evidence object means no completion.
+    Assert(Sc2MatchCompletionGate.Evaluate(null) == GameSessionState.Running,
         "Runner result markers alone must never complete a match.");
 }
 
-static void CompletionRequiresBothEvidenceArtifacts()
+static void ValidEvidenceCompletesMatch()
 {
-    Assert(Sc2MatchCompletionGate.Evaluate(false, false) == GameSessionState.Running,
-        "A match without either evidence artifact must remain running.");
-    Assert(Sc2MatchCompletionGate.Evaluate(true, false) == GameSessionState.Running,
-        "Authoritative results without validated replay evidence must not complete a match.");
-    Assert(Sc2MatchCompletionGate.Evaluate(false, true) == GameSessionState.Running,
-        "Replay evidence without validated authoritative results must not complete a match.");
-    Assert(Sc2MatchCompletionGate.Evaluate(true, true) == GameSessionState.Completed,
-        "Both validated evidence artifacts should satisfy the completion gate.");
+    var validation = ValidateEvidence(ValidMatchEvidence());
+    Assert(validation.IsValid, $"Expected valid evidence, got: {string.Join(", ", validation.Diagnostics)}");
+    Assert(Sc2MatchCompletionGate.Evaluate(validation) == GameSessionState.Completed,
+        "A passing assignment-bound observation and replay validation should complete the match.");
+}
+
+static void EvidenceRejectsParticipantResultFailures()
+{
+    var evidence = ValidMatchEvidence();
+    var missing = evidence with
+    {
+        TerminalResults = Array.AsReadOnly(evidence.TerminalResults.Take(1).ToArray())
+    };
+    Assert(ValidateEvidence(missing).Diagnostics.Contains("evidence.terminal-results.identity-invalid"),
+        "Missing participant result was not rejected.");
+
+    var duplicate = evidence with
+    {
+        TerminalResults = Array.AsReadOnly(new[]
+        {
+            evidence.TerminalResults[0],
+            evidence.TerminalResults[1] with { Sc2PlayerId = 1 }
+        })
+    };
+    Assert(ValidateEvidence(duplicate).Diagnostics.Contains("evidence.terminal-results.identity-invalid"),
+        "Duplicate SC2 player ID was not rejected.");
+
+    var wrongAssignment = evidence with
+    {
+        TerminalResults = Array.AsReadOnly(new[]
+        {
+            evidence.TerminalResults[0] with { ParticipantId = "unknown" },
+            evidence.TerminalResults[1]
+        })
+    };
+    Assert(ValidateEvidence(wrongAssignment).Diagnostics.Contains("evidence.terminal-results.assignment-mismatch"),
+        "Unknown participant assignment was not rejected.");
+    Assert(Sc2MatchCompletionGate.Evaluate(ValidateEvidence(missing)) == GameSessionState.Running,
+        "Invalid terminal evidence must remain non-completed.");
+}
+
+static void EvidenceRejectsInvalidResults()
+{
+    var evidence = ValidMatchEvidence();
+    var undecided = evidence with
+    {
+        TerminalResults = Array.AsReadOnly(new[]
+        {
+            evidence.TerminalResults[0],
+            evidence.TerminalResults[1] with { Result = "Undecided" }
+        })
+    };
+    Assert(ValidateEvidence(undecided).Diagnostics.Contains("evidence.terminal-results.value-invalid"),
+        "Undecided terminal result was not rejected.");
+
+    var replayUndecided = evidence with
+    {
+        Replay = evidence.Replay! with
+        {
+            PlayerResults = Array.AsReadOnly(new[]
+            {
+                new Sc2ReplayPlayerResult(1, "Victory"),
+                new Sc2ReplayPlayerResult(2, "Undecided")
+            })
+        }
+    };
+    Assert(ValidateEvidence(replayUndecided).Diagnostics.Contains("evidence.replay.player-results.invalid"),
+        "Undecided replay result was not rejected.");
+}
+
+static void EvidenceRejectsReplayFailures()
+{
+    var evidence = ValidMatchEvidence();
+    var badDigest = evidence with { Replay = evidence.Replay! with { VerifiedSha256 = new string('d', 64) } };
+    Assert(ValidateEvidence(badDigest).Diagnostics.Contains("evidence.replay.digest-invalid"),
+        "Replay digest mismatch was not rejected.");
+
+    var oversized = evidence with { Replay = evidence.Replay! with { SizeBytes = Sc2MatchEvidenceValidator.DefaultMaximumReplayBytes + 1 } };
+    Assert(ValidateEvidence(oversized).Diagnostics.Contains("evidence.replay.size-invalid"),
+        "Oversized replay was not rejected.");
+
+    var wrongMap = evidence with { Replay = evidence.Replay! with { MapName = "different-map" } };
+    Assert(ValidateEvidence(wrongMap).Diagnostics.Contains("evidence.replay.map-mismatch"),
+        "Replay map mismatch was not rejected.");
+
+    var wrongBuild = evidence with { Replay = evidence.Replay! with { GameVersion = "different-build" } };
+    Assert(ValidateEvidence(wrongBuild).Diagnostics.Contains("evidence.replay.game-version-mismatch"),
+        "Replay game version mismatch was not rejected.");
+
+    var wrongResult = evidence with
+    {
+        Replay = evidence.Replay! with
+        {
+            PlayerResults = Array.AsReadOnly(new[]
+            {
+                new Sc2ReplayPlayerResult(1, "Defeat"),
+                new Sc2ReplayPlayerResult(2, "Victory")
+            })
+        }
+    };
+    Assert(ValidateEvidence(wrongResult).Diagnostics.Contains("evidence.replay.player-results.mismatch"),
+        "Replay result disagreement was not rejected.");
+}
+
+static void EvidenceRejectsProvenanceFailures()
+{
+    var evidence = ValidMatchEvidence();
+    var wrongSession = evidence with { SessionId = "other-session" };
+    Assert(ValidateEvidence(wrongSession).Diagnostics.Contains("evidence.session-id.mismatch"),
+        "Session provenance mismatch was not rejected.");
+
+    var wrongBuild = evidence with
+    {
+        ExpectedParticipants = Array.AsReadOnly(new[]
+        {
+            evidence.ExpectedParticipants[0] with { BuildId = "different-build" },
+            evidence.ExpectedParticipants[1]
+        })
+    };
+    Assert(ValidateEvidence(wrongBuild).Diagnostics.Contains("evidence.assignment.participant-mismatch"),
+        "Immutable build assignment mismatch was not rejected.");
+
+    var noReplay = evidence with { Replay = null! };
+    Assert(ValidateEvidence(noReplay).Diagnostics.Contains("evidence.replay.missing"),
+        "Missing replay evidence was not rejected.");
+
+    var badTime = evidence with { TerminalObservedAtUtc = evidence.CapturedAtUtc.AddSeconds(-1) };
+    Assert(ValidateEvidence(badTime).Diagnostics.Contains("evidence.timestamp.invalid"),
+        "Invalid evidence timestamp ordering was not rejected.");
 }
 
 static void AssertThrows(Action action, string expectedMessage)
