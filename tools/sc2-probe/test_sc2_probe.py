@@ -403,6 +403,26 @@ class ProbePreflightTests(unittest.TestCase):
         args = parse_args([])
         self.assertFalse(args.execute)
 
+    def test_run_probe_records_missing_map_preflight_without_hashing_missing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "out"
+            config = ProbeConfig(
+                executable=root / "missing.exe",
+                install_dir=root / "missing-install",
+                map_path=root / "missing-map.SC2Map",
+                output_dir=output,
+                expected_version="5.0.17",
+                base_port=5000,
+                startup_timeout=30,
+                shutdown_timeout=10,
+            )
+            self.assertEqual(run_probe(config), 2)
+            evidence = json.loads((output / "evidence.json").read_text(encoding="utf-8"))
+            self.assertFalse(evidence["map"]["exists"])
+            self.assertNotIn("sha256", evidence["map"])
+            self.assertFalse(evidence["gates"]["preflight"]["passed"])
+
     def test_missing_paths_fail_preflight(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
