@@ -7,6 +7,12 @@ public sealed record Sc2ExpectedParticipant(
     string BuildId,
     string BuildSha256);
 
+/// <summary>Host-owned JoinGame identity binding correlated to an immutable assignment.</summary>
+public sealed record Sc2ParticipantJoinEvidence(
+    string ParticipantId,
+    uint Sc2PlayerId,
+    DateTimeOffset JoinedAtUtc);
+
 /// <summary>One participant result captured from the observer's terminal SC2 observation.</summary>
 public sealed record Sc2ParticipantResultEvidence(
     string ParticipantId,
@@ -54,6 +60,7 @@ public sealed record Sc2MatchEvidence(
     DateTimeOffset CapturedAtUtc,
     DateTimeOffset TerminalObservedAtUtc,
     IReadOnlyList<Sc2ExpectedParticipant> ExpectedParticipants,
+    IReadOnlyList<Sc2ParticipantJoinEvidence> JoinBindings,
     IReadOnlyList<Sc2ParticipantResultEvidence> TerminalResults,
     Sc2ReplayEvidence Replay);
 
@@ -147,6 +154,23 @@ public static class Sc2MatchEvidenceValidator
             }
         }
 
+        var joins = evidence.JoinBindings?.ToArray() ?? [];
+        if (joins.Length != expected.Length ||
+            joins.Any(p => p is null) ||
+            joins.Any(p => p.Sc2PlayerId == 0) ||
+            joins.Select(p => p.Sc2PlayerId).Distinct().Count() != joins.Length ||
+            joins.Select(p => p.ParticipantId).Distinct(StringComparer.Ordinal).Count() != joins.Length ||
+            joins.Any(p => p.JoinedAtUtc.Offset != TimeSpan.Zero || p.JoinedAtUtc < evidence.CapturedAtUtc))
+            errors.Add("evidence.join-bindings.invalid");
+        else
+        {
+            foreach (var participant in expected)
+            {
+                if (joins.Count(p => string.Equals(p.ParticipantId, participant.ParticipantId, StringComparison.Ordinal)) != 1)
+                    errors.Add("evidence.join-bindings.assignment-mismatch");
+            }
+        }
+
         var terminal = evidence.TerminalResults?.ToArray() ?? [];
         var replay = evidence.Replay;
         if (terminal.Length != expected.Length ||
@@ -209,6 +233,16 @@ public static class Sc2MatchEvidenceValidator
             {
                 if (terminal.Count(p => string.Equals(p.ParticipantId, participant.ParticipantId, StringComparison.Ordinal)) != 1)
                     errors.Add("evidence.terminal-results.assignment-mismatch");
+            }
+            if (joins.Length == terminal.Length && joins.All(p => p is not null))
+            {
+                foreach (var result in terminal)
+                {
+                    var binding = joins.SingleOrDefault(p =>
+                        string.Equals(p.ParticipantId, result.ParticipantId, StringComparison.Ordinal));
+                    if (binding is null || binding.Sc2PlayerId != result.Sc2PlayerId)
+                        errors.Add("evidence.terminal-results.join-binding-mismatch");
+                }
             }
         }
 
