@@ -398,6 +398,38 @@ class ProbePreflightTests(unittest.TestCase):
         self.assertFalse(parse_args([]).setup_sequence)
         self.assertTrue(parse_args(["--setup-sequence"]).setup_sequence)
 
+    def test_race_match_cli_requires_explicit_opponent_inputs(self):
+        args = parse_args([
+            "--race-match", "--bot-race", "1", "--computer-race", "2",
+            "--computer-difficulty", "3", "--observed-player-id", "0",
+            "--server-ports", "5100,5101",
+        ])
+        self.assertTrue(args.race_match)
+        self.assertEqual(args.bot_race, 1)
+        self.assertEqual(args.computer_race, 2)
+        self.assertEqual(args.computer_difficulty, 3)
+
+    def test_race_match_preflight_uses_two_listeners_and_explicit_setup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "SC2.exe"
+            install = root / "install"
+            map_path = root / "map.SC2Map"
+            executable.write_bytes(b"")
+            install.mkdir()
+            map_path.write_bytes(b"map")
+            base = dict(
+                executable=executable, install_dir=install, map_path=map_path,
+                output_dir=root / "out", expected_version="5.0.17", base_port=5000,
+                startup_timeout=30, shutdown_timeout=10, setup_sequence=True,
+                race_match=True, observed_player_id=0, bot_race=1,
+                computer_race=2, computer_difficulty=3,
+                port_set={"server_ports": (5100, 5101), "client_ports": ((5102, 5103),)},
+            )
+            self.assertFalse(validate_config(ProbeConfig(**base)))
+            base["computer_difficulty"] = None
+            self.assertTrue(any("Computer difficulty" in error for error in validate_config(ProbeConfig(**base))))
+
     def test_explicit_port_pair_parser_rejects_ambiguous_or_invalid_values(self):
         self.assertEqual(parse_port_pair("5002, 5003"), (5002, 5003))
         for value in ("5002", "5002,5002", "0,5003", "5002,70000", "a,5003"):
