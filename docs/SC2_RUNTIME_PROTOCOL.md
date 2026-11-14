@@ -123,6 +123,12 @@ Transport records are protocol evidence, not proof of game readiness. The defaul
 
 Reference: https://github.com/Blizzard/s2client-proto/blob/master/docs/protocol.md
 
+## Native Computer opponent setup builder
+
+The descriptor-backed `build_create_game_request` helper can now construct a CreateGame request with one or more explicit Participant entries followed by native SC2 Computer entries. Each Computer entry requires an explicit race and difficulty; an optional AI build can also be supplied. The first race-ladder profile uses one Terran bot Participant and one Computer opponent whose race is selected per match. Tests serialize the request against the pinned generated protobuf descriptors and assert the exact PlayerSetup types/race/difficulty/build fields.
+
+This is a request-builder capability only. The current live `--setup-sequence` still follows the two-player observer/player/player path; it does not yet launch the one-bot-plus-Computer topology or prove the target SC2 build accepts it. A dedicated opt-in live sequence is the next implementation step.
+
 ## Post-join GameInfo and Observation capture
 
 After the candidate setup sequence receives all four acknowledgements, the probe issues one `RequestGameInfo` and one `RequestObservation` on each of the observer, player-1, and player-2 connections. It keeps one request outstanding per connection and persists the raw protobuf request/response exchange before evaluating each response.
