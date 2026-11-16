@@ -14,7 +14,8 @@ This is a target architecture and implementation plan. The CreateGame-then-obser
 
 | Process | Responsibility | Authority |
 |---|---|---|
-| Simulation host / observer | Create the multiplayer game, join as observer, monitor lifecycle, collect replay/result evidence | Match orchestration and observation only; no player actions |
+| Participant A SC2 instance | Create the multiplayer game and join as Participant A; expose only Participant A's player listener | Ordinary entrant; no observer privileges or cross-entrant access |
+| Independent observer SC2 instance | Join the created game as observer, monitor lifecycle, collect replay/result evidence | Match observation only; no player actions |
 | Player SC2 instance per entrant | Expose that entrant's SC2API listener and provide its observation/action channel | That entrant's game session only |
 | Bot runner per entrant | Connect only to its assigned player listener and submit actions for that entrant | That entrant only |
 
@@ -37,11 +38,11 @@ ServerSC2 is a host for compatible SC2 bots, not a SingularityBot-only host.
 2. Resolve and verify every runner artifact by immutable build identity and SHA-256 before starting any process.
 3. Validate that the selected format and team layout are supported by the pinned SC2 version.
 4. Atomically lease one distinct SC2 listener port per entrant plus one observer listener, and the complete multiplayer PortSet footprint required by the SC2 clients.
-5. Start the dedicated simulation-host SC2 process with its own listener.
-6. Connect to that listener and issue CreateGame for the trusted multiplayer map and the exact supported player/team setup.
-7. Join that same SC2 client as an observer, initially investigating `observed_player_id = 0` for the all-player observer perspective.
-8. Start one player SC2 process per entrant with distinct listeners.
-9. Launch each immutable bot runner with only its assigned player listener and the shared, correctly constructed match PortSet configuration. No runner receives CreateGame authority or another entrant's endpoint.
+5. Start Participant A's SC2 process with its assigned listener.
+6. Launch Participant A's runner in the versioned create-and-join mode: it connects to its own listener, issues CreateGame for the trusted multiplayer map and exact supported player/team setup, then joins as Participant A.
+7. Start one independent player SC2 process per remaining entrant and launch each runner with only its assigned listener. Each joins the already-created game; no runner receives another entrant's endpoint.
+8. Start the independent observer SC2 process with its own listener and join as observer, initially investigating `observed_player_id = 0` for the all-player observer perspective.
+9. Supply the protocol-derived, correctly constructed match PortSet configuration to each client as required by the pinned SC2 build.
 10. Require observer readiness and every player join acknowledgement. Validate unique player IDs and bind each ID to the immutable entrant/build/team assignment.
 11. Observe authoritative game lifecycle and terminal results from the observer channel. Save replay and diagnostics under the immutable match/session identity.
 12. Stop all runners and SC2 process trees, then release the complete lease on every terminal path.
@@ -85,7 +86,7 @@ ServerApp remains responsible for generic competition policy and immutable admis
 
 ## Required proof gates
 
-1. **Protocol proof:** CreateGame from the dedicated host followed by observer join succeeds on the pinned SC2 version; confirm `observed_player_id = 0` semantics.
+1. **Protocol proof:** Participant A's CreateGame-then-player-join sequence, independent player joins, and independent observer join succeed on the pinned SC2 version; confirm `observed_player_id = 0` semantics.
 2. **Format proof:** prove player/team setup and result semantics for each enabled format (1v1, teams, FFA, multi-team); do not advertise unsupported formats.
 3. **Port proof:** all SC2 clients join one match with the derived PortSet layout; no port collision across concurrent matches.
 4. **Isolation proof:** each bot receives only its own player observation and cannot connect to the observer endpoint or another entrant's listener.
