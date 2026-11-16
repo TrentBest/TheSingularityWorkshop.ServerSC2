@@ -1,14 +1,14 @@
-# Observer-Hosted SC2 Match Topology
+# SC2 Match Topology and Observer Integration
 
-## Decision
+## Decision and current integration candidate
 
 ServerSC2 hosts arbitrary SC2 bot competitions, not just 1v1. A match is defined by an immutable set of admitted bot entrants and a trusted competition format. Supported formats should include 1v1, 2v2, 3v3, FFA, and multi-team formats such as 2v2v2, subject to the pinned SC2 build's actual player, team, and networking limits.
 
-The target topology has one dedicated simulation-host/observer process plus one player SC2 process and one independently supervised bot runner per entrant. The observer creates the game, joins as an observer, monitors authoritative lifecycle, and captures results/replay. It is infrastructure, never a competitor. No bot entrant receives CreateGame authority.
+**The current cross-repository integration candidate is participant-hosted game creation:** Participant A's SC2 connection issues `CreateGame` and then joins as Participant A; Participant B and every additional entrant join from their own SC2 processes; an independent observer joins from its own SC2 process. Participant A remains an ordinary competitor and must not receive observer data or authority over another entrant. The observer is infrastructure, never a competitor, and owns read-only observation, terminal-result collection, and replay capture.
+
+This candidate is grounded in the SingularityBot runner contract and source inspection, and is the sequence selected in ServerSC2 issue #1. It is **not live-proven**. Do not substitute the earlier observer-created-game sequence as the integration contract, and do not describe this topology as operational until the pinned-build proof gates below pass. If later protocol evidence requires a different sequence, update both repositories' versioned contracts and tests together before production wiring.
 
 The number of competitors and their team grouping come from the immutable match assignment. ServerSC2 must not hard-code two participants, a single opponent, or a binary win/loss model. The exact SC2 player/team setup mapping must be verified against the pinned game build before each format is enabled.
-
-This is a target architecture and implementation plan. The CreateGame-then-observer-join sequence, team mapping, observer port configuration, replay capture, and lifecycle behavior must be proven against the pinned SC2 build before this topology is declared operational.
 
 ## Process roles
 
@@ -16,7 +16,7 @@ This is a target architecture and implementation plan. The CreateGame-then-obser
 |---|---|---|
 | Participant A SC2 instance | Create the multiplayer game and join as Participant A; expose only Participant A's player listener | Ordinary entrant; no observer privileges or cross-entrant access |
 | Independent observer SC2 instance | Join the created game as observer, monitor lifecycle, collect replay/result evidence | Match observation only; no player actions |
-| Player SC2 instance per entrant | Expose that entrant's SC2API listener and provide its observation/action channel | That entrant's game session only |
+| Player SC2 instance per remaining entrant | Expose that entrant's SC2API listener and provide its observation/action channel | That entrant's game session only |
 | Bot runner per entrant | Connect only to its assigned player listener and submit actions for that entrant | That entrant only |
 
 These are independently supervised processes, not necessarily separate physical machines. A single trusted host can supervise them locally at first. Process and endpoint boundaries should permit later placement on separate workers.
