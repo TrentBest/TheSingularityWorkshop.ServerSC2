@@ -3,18 +3,19 @@
 
 # ServerSC2
 
-**StarCraft II-specific competitive game-session host.** ServerSC2 is the game integration layer for the Workshop's competitive ladder—not a replacement for the reusable ServerApp platform and not a home for bot strategy.
+**StarCraft II-specific competitive game-session host.** ServerSC2 executes admitted matches for competition formats coordinated by ServerApp. It is not a second tournament/ladder system and is not a home for bot strategy.
 
 ## Responsibility boundary
 
-- **ServerApp** owns game-neutral competition contracts, immutable bot-build admission, trusted role selection, and the generic game-session lifecycle contract.
+- **Economy** owns reusable, game-neutral competition vocabulary and progression primitives (competitors, teams, competition registration/lifecycle, and the implemented single-elimination bracket). Its `Ladder` format is currently a format identifier, not a completed ladder/rating engine.
+- **ServerApp** owns authoritative competition/session coordination, immutable match assignments, bot-build admission, trusted role selection, and the generic game-session lifecycle contract. It should reuse Economy's domain primitives rather than recreate them.
 - **ServerSC2** owns StarCraft II session configuration, game-specific slot and port allocation, SC2 process supervision, bot attachment, readiness, termination, replay capture, and authoritative game-result evidence.
 - **SimulationServer** is the target runtime model: Participant A's assigned runner creates the match through its own player SC2 process, each remaining entrant joins through an isolated player process and runner, and an independent observer joins last to collect authoritative evidence. The observer never creates the game or receives a competitor identity. The current production supervisor is still the legacy two-player competitor-host implementation; the observer topology is not yet live-proven.
 - **Experiences** remains the source of reusable, versioned MicroBundles. ServerSC2 may compose approved bundles through FSM_COS; it does not duplicate their domain implementations.
 - **SingularityBot** remains an independently launched player runtime and a bot-authoring foundation. Its strategy and bot-side SC2 protocol adapter do not move into this repository, and it is not a required host dependency.
 - **FSM_COS** composes approved MicroBundles. **FSM_Foundry** executes host-authored workflows. **FSM_API** supplies runtime state/context primitives.
 
-The first target is a controlled local 1v1 vertical slice. No public matchmaking, ratings, tournament system, or production anti-cheat claim is implied by this repository's existence.
+The first target is a controlled local 1v1 vertical slice. Economy's single-elimination bracket is reusable tournament progression; ladder standings, rating calculations, matchmaking policy, and durable competition orchestration are not implemented by ServerSC2.
 
 ## Trust model
 
