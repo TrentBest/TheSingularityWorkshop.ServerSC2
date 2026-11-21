@@ -15,10 +15,10 @@ ServerApp: immutable MatchAssignment (N entrants + teams + format)
        1. validate assignment, format, and trusted SC2 profile
        2. resolve and hash-verify every immutable runner artifact
        3. allocate observer + N player listener ports and complete multiplayer PortSet footprint
-       4. launch dedicated SC2 simulation host
-       5. create trusted game and join simulation host as observer
-       6. launch N player SC2 instances
-       7. launch N independent runners, each attached only to its own player listener
+       4. launch Participant A SC2 process and its assigned runner
+       5. Participant A creates the trusted game and joins as a player
+       6. launch remaining player SC2 processes and assigned runners; each joins independently
+       7. launch the independent observer SC2 process and join as observer
        8. verify observer readiness and all unique player join identities
        9. observe authoritative lifecycle, format-aware results, and replay
       10. stop all child processes and release the match lease
@@ -59,7 +59,7 @@ Executable paths, runtime installation, fixed runner arguments, environment vari
 
 The current concrete runtime owns two SC2 process handles and two runner process handles, marker-based readiness/result observation, and process-tree termination. The target supervisor must extend to one observer plus N player SC2 processes and N runners and must:
 - resolve each admitted immutable build through a trusted artifact resolver and verify its SHA-256 before launch;
-- create and join the observer process without granting CreateGame to a competitor;
+- launch the observer as a separate read-only process; only Participant A's assigned runner may issue CreateGame through its own player connection;
 - validate observer readiness and correlate each player result to that player's join acknowledgement and team;
 - persist bounded per-process stdout/stderr logs;
 - enforce match-duration, memory, and CPU budgets per entrant;
@@ -69,10 +69,10 @@ The current concrete runtime owns two SC2 process handles and two runner process
 
 ## Implementation sequence
 
-1. Prove CreateGame followed by observer join on the pinned SC2 build, including `observed_player_id = 0` semantics.
+1. Prove Participant A CreateGame-and-join, remaining participant joins, and the independent observer join on the pinned SC2 build, including `observed_player_id = 0` semantics.
 2. Derive and test the complete PortSet allocation for observer plus N player clients.
 3. Prove player/team setup and terminal result semantics for each enabled match format.
-4. Implement the observer-host process lifecycle and remove competitor CreateGame arguments.
+4. Implement the independent observer process lifecycle while preserving the versioned Participant A create-and-join runner contract.
 5. Define the generic runner contract and prove both a SingularityBot runner and an independent bot can attach.
 6. Complete trusted artifact resolution and SHA-256 verification for every immutable entrant build.
 7. Add contract tests for variable participant counts, team identity, observer readiness, result mapping, isolation, and partial-start cleanup.

@@ -60,7 +60,7 @@ ServerSC2.ServerAppAdapter implements the game-neutral IGameSessionAdapter contr
 
 The adapter depends on ServerApp.Core through a source project reference, not a published package. CI checks out ServerApp's development branch alongside this repository. The dependency is intentionally isolated in this adapter project; ServerSC2.Core remains independent of ServerApp.
 
-ISc2SessionRuntime is an injected trusted boundary. The current concrete process runtime still implements the earlier two-SC2-process/two-runner competitor-host topology. The target implementation must add an observer process, one player process per entrant, observer join/readiness, and evidence collection. It must not grant any runner CreateGame authority.
+ISc2SessionRuntime is an injected trusted boundary. The current concrete process runtime still implements the earlier two-SC2-process/two-runner competitor-host topology. The target implementation must add an observer process, one player process per entrant, observer join/readiness, and evidence collection. Under the current cross-repository runner contract, only Participant A's assigned runner may issue CreateGame through Participant A's own SC2 connection; the independent observer is read-only and never creates the match.
 
 ## Port allocation
 
@@ -74,7 +74,7 @@ The full listener and multiplayer footprint must be represented as one typed mat
 2. Resolve every admitted runner artifact and verify SHA-256 before launch.
 3. Validate that the selected map/game version supports the requested player/team format.
 4. Allocate a topology-correct match-scoped port set for observer and all player clients.
-5. Start the dedicated SC2 simulation host, create the match, and join as an observer.
+5. Start Participant A's SC2 process; its assigned runner creates the trusted match and joins as Participant A. Start remaining participant processes/runners and join them independently; start the neutral observer process and join it last.
 6. Start one independent player SC2 process and one runner per entrant using fixed host-owned arguments.
 7. Verify observer readiness and all participant joins, including unique player IDs correlated to immutable entrant/build/team assignments.
 8. Observe terminal game state and preserve observer-authored result plus replay evidence.
