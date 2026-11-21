@@ -26,7 +26,8 @@ FSM_COS composes approved MicroBundles. ServerSC2 configures and supervises the 
 
 | Concern | Owner |
 |---|---|
-| Competition definitions, immutable match assignments, entrant/build admission, team/format policy | ServerApp |
+| Reusable competitor/team/competition domain vocabulary and implemented single-elimination progression | Economy |
+| Authoritative competition coordination, immutable match assignments, entrant/build admission, team/format policy | ServerApp (reusing Economy contracts) |
 | Generic IGameSessionAdapter contract and lifecycle validation | ServerApp.Core |
 | SC2 maps, game version, player slots, team mapping, port topology, launch policy | ServerSC2 |
 | Observer and player SC2 process lifecycles, readiness, replay/result capture | ServerSC2 SimulationServer |
@@ -36,7 +37,7 @@ FSM_COS composes approved MicroBundles. ServerSC2 configures and supervises the 
 | Composition of approved bundles | FSM_COS |
 | Host-authored workflow execution | FSM_Foundry |
 
-ServerSC2 must not copy the generic bot-build registry or implement its own competing matchmaking/rating system. It must not require entrants to use SingularityBot assemblies or strategy.
+ServerSC2 must not copy the generic bot-build registry or implement its own competing matchmaking/rating system. It must not require entrants to use SingularityBot assemblies or strategy. Tournament/ladder progression belongs above this game adapter: reuse Economy's `Competitor`, `Team`, `Competition`, and `SingleEliminationBracket` primitives through ServerApp. Do not treat `CompetitionFormat.Ladder` as proof that a ladder algorithm, standings projection, or rating system already exists; those are separate future capabilities.
 
 ## Generic bot contract
 
@@ -50,7 +51,7 @@ Executable paths, environment allowlists, process limits, and working directorie
 
 The SC2 server profile is trusted deployment configuration. It pins the adapter/game version, map identity, bounded port ranges, and maximum concurrency. It is not a client-supplied match payload.
 
-Every session is built from an immutable admitted match assignment. The assignment supplies the entrant identities, immutable build references, format, and team grouping. ServerSC2 validates those values against the selected SC2 profile and supported format before starting processes.
+Every session is built from an immutable admitted match assignment. The assignment supplies the entrant identities, immutable build references, format, and team grouping. ServerApp should map those from Economy's competition domain into its immutable game-neutral assignment. ServerSC2 validates the admitted values against the selected SC2 profile and supported format before starting processes; it does not own bracket progression, ratings, or standings.
 
 Each competitor receives a dedicated player SC2 listener and its own runner process. The simulation host is a separate SC2 process and must join as an observer; it is not assigned to any entrant. A match must not become Ready until the observer and every player participant have independently passed protocol-level readiness checks.
 
