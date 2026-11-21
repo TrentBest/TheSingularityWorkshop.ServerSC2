@@ -32,6 +32,9 @@ jobs:
       - name: Run SC2 probe preflight tests
         working-directory: TheSingularityWorkshop.ServerSC2
         run: python -m unittest discover -s tools/sc2-probe -p 'test_*.py'
+      - name: Test contract TRX report adapter
+        working-directory: TheSingularityWorkshop.ServerSC2
+        run: python -m unittest discover -s tools/ci -p 'test_*.py'
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -48,11 +51,17 @@ jobs:
         id: contract_checks
         working-directory: TheSingularityWorkshop.ServerSC2
         run: dotnet run --project tests/ServerSC2.ContractChecks/ServerSC2.ContractChecks.csproj --configuration Release
-      - name: Upload contract check report
+      - name: Convert contract check report to TRX
+        if: always() && steps.contract_checks.outcome != 'skipped'
+        working-directory: TheSingularityWorkshop.ServerSC2
+        run: python tools/ci/contract_report_to_trx.py --input contract-check-results.json --output contract-check-results.trx
+      - name: Upload contract check reports
         if: always() && steps.contract_checks.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: server-sc2-contract-check-results
-          path: TheSingularityWorkshop.ServerSC2/contract-check-results.json
+          path: |
+            TheSingularityWorkshop.ServerSC2/contract-check-results.json
+            TheSingularityWorkshop.ServerSC2/contract-check-results.trx
           if-no-files-found: error
           retention-days: 14
