@@ -60,8 +60,11 @@ public sealed record Sc2MatchProcessPlan(
             throw new InvalidOperationException("SC2 participant IDs must be unique.");
         if (participants.Select(p => p.GamePort).Distinct().Count() != participants.Length)
             throw new InvalidOperationException("Every participant SC2 client requires a distinct listener port.");
-        if (participants.Any(p => p.IsGameHost))
-            throw new InvalidOperationException("Participant clients cannot own CreateGame authority in observer-hosted topology.");
+        // The current cross-repository runner contract assigns game creation to
+        // Participant A, who remains an ordinary player. The independent observer
+        // joins last and owns observation/evidence only; it never creates the game.
+        if (!participants[0].IsGameHost || participants.Skip(1).Any(p => p.IsGameHost))
+            throw new InvalidOperationException("Only Participant A (the first assigned participant) may own CreateGame authority.");
 
         // One observer plus N player clients each consume two ports, with one shared port.
         var multiplayerPortCount = (2 * (participants.Length + 1)) + 1;
@@ -74,7 +77,7 @@ public sealed record Sc2MatchProcessPlan(
 
         var clients = new List<Sc2ClientProcessPlan>(participants.Length + 1)
         {
-            new(Sc2ProcessRole.Observer, 0, null, null, true)
+            new(Sc2ProcessRole.Observer, 0, null, null, false)
         };
 
         for (var index = 0; index < participants.Length; index++)
@@ -85,7 +88,7 @@ public sealed record Sc2MatchProcessPlan(
                 index + 1,
                 participant.ParticipantId,
                 participant.GamePort,
-                false));
+                participant.IsGameHost));
         }
 
         return new Sc2MatchProcessPlan(

@@ -189,7 +189,7 @@ static Sc2SessionLaunchRequest ObserverLaunchRequest(int participantCount)
             $"team-{index / 2 + 1}",
             new BotBuildReference($"bot-{index + 1}", $"build-{index + 1}", new string("abcdef0123456789"[index % 16], 64)),
             5000 + index,
-            false))
+            index == 0))
         .ToArray();
     return new Sc2SessionLaunchRequest(
         "match-observer", "session-observer", "0.1.0", "5.0.14", "AbyssalReefLE",
@@ -206,11 +206,14 @@ static void ObserverPlanIsolatesCreateGame()
     Assert(plan.Sc2Clients.Count(client => client.HasCreateGameAuthority) == 1,
         "Expected exactly one CreateGame authority.");
     var observer = plan.Sc2Clients.Single(client => client.Role == Sc2ProcessRole.Observer);
-    Assert(observer.ParticipantId is null && observer.GamePort is null && observer.HasCreateGameAuthority,
-        "Observer must be neutral and exclusively own CreateGame authority.");
-    Assert(plan.Sc2Clients.Where(client => client.Role == Sc2ProcessRole.Participant)
-        .All(client => !client.HasCreateGameAuthority && client.ParticipantId is not null && client.GamePort is not null),
-        "Participant SC2 clients must have identity/listener ports and no CreateGame authority.");
+    Assert(observer.ParticipantId is null && observer.GamePort is null && !observer.HasCreateGameAuthority,
+        "Observer must be neutral and must not own CreateGame authority.");
+    var participants = plan.Sc2Clients.Where(client => client.Role == Sc2ProcessRole.Participant).ToArray();
+    Assert(participants[0].HasCreateGameAuthority &&
+        participants.Skip(1).All(client => !client.HasCreateGameAuthority),
+        "Only Participant A may own CreateGame authority.");
+    Assert(participants.All(client => client.ParticipantId is not null && client.GamePort is not null),
+        "Every participant SC2 client must have its own identity and listener port.");
 }
 
 static void ObserverPlanScales()
@@ -230,17 +233,29 @@ static void ObserverPlanScales()
     AssertThrows(() => Sc2MatchProcessPlan.Create(ObserverLaunchRequest(65)), "between 2 and 64");
 
     var invalid = ObserverLaunchRequest(2);
-    var participantWithAuthority = invalid with
+    var secondParticipantWithAuthority = invalid with
     {
         Participants = Array.AsReadOnly(invalid.Participants.Select((participant, index) =>
-            index == 0 ? participant with { IsGameHost = true } : participant).ToArray())
+            index == 1 ? participant with { IsGameHost = true } : participant).ToArray())
     };
     try
     {
-        Sc2MatchProcessPlan.Create(participantWithAuthority);
-        throw new InvalidOperationException("Expected participant CreateGame authority to be rejected.");
+        Sc2MatchProcessPlan.Create(secondParticipantWithAuthority);
+        throw new InvalidOperationException("Expected non-host participant CreateGame authority to be rejected.");
     }
-    catch (InvalidOperationException exception) when (exception.Message.Contains("cannot own CreateGame", StringComparison.Ordinal)) { }
+    catch (InvalidOperationException exception) when (exception.Message.Contains("Only Participant A", StringComparison.Ordinal)) { }
+
+    var observerOnlyHost = invalid with
+    {
+        Participants = Array.AsReadOnly(invalid.Participants.Select(participant =>
+            participant with { IsGameHost = false }).ToArray())
+    };
+    try
+    {
+        Sc2MatchProcessPlan.Create(observerOnlyHost);
+        throw new InvalidOperationException("Expected missing Participant A CreateGame authority to be rejected.");
+    }
+    catch (InvalidOperationException exception) when (exception.Message.Contains("Only Participant A", StringComparison.Ordinal)) { }
 }
 
 static void ObserverPlanRejectsInvalidBoundaries()
