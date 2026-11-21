@@ -349,7 +349,7 @@ static void ObserverPlanPreservesTeamAssignments()
                 new BotBuildReference($"bot-{index + 1}", $"build-{index + 1}",
                     new string("abcdef0123456789"[index % 16], 64)),
                 5100 + index,
-                false))
+                index == 0))
             .ToArray())
     };
     var teamPlan = Sc2MatchProcessPlan.Create(teamMatch);
@@ -366,7 +366,7 @@ static void ObserverPlanPreservesTeamAssignments()
                 new BotBuildReference($"ffa-bot-{index + 1}", $"ffa-build-{index + 1}",
                     new string("abcdef0123456789"[index % 16], 64)),
                 5200 + index,
-                false))
+                index == 0))
             .ToArray())
     };
     var ffaPlan = Sc2MatchProcessPlan.Create(ffaMatch);
