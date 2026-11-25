@@ -4,15 +4,6 @@ using ServerApp.Core;
 
 namespace ServerSC2.ServerAppAdapter;
 
-/// <summary>
-/// Resolves an admitted immutable bot build to its executable runner. Implementations must
-/// verify the returned artifact against BotBuildReference.ContentSha256 before returning it.
-/// </summary>
-public interface ISc2BotRunnerResolver
-{
-    string ResolveRunnerExecutable(BotBuildReference build);
-}
-
 /// <summary>Trusted machine-local paths and bounded lifecycle timeouts for one SC2 host.</summary>
 public sealed record Sc2ProcessRuntimeOptions(
     string StarCraftExecutablePath,
@@ -37,6 +28,7 @@ public sealed record Sc2ProcessRuntimeOptions(
 
 /// <summary>
 /// Owns the two SC2 processes and two immutable-build runner processes for each match.
+/// Every build package and BotDefinition is resolved and hash-verified before any process starts.
 /// Ready is returned only after both runners report protocol-level join acknowledgements.
 /// Runner result markers are diagnostics only. Completion requires separately validated
 /// host-authoritative terminal results and replay evidence.
@@ -61,7 +53,6 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
         public string SessionId { get; } = sessionId;
         public List<Process> Sc2Processes { get; } = [];
         public List<Runner> Runners { get; } = [];
-        public DateTimeOffset StartedAtUtc { get; } = DateTimeOffset.UtcNow;
         public SemaphoreSlim Gate { get; } = new(1, 1);
         public bool Stopping { get; set; }
     }
@@ -95,6 +86,18 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
             throw new InvalidOperationException("The match assignment map does not match the trusted runtime map profile.");
         ValidateMachinePaths();
 
+        // Resolve and verify every immutable build before starting even the SC2 client
+        // processes. A missing, substituted, or modified definition must fail admission.
+        var artifacts = new Dictionary<string, Sc2BotRunnerArtifact>(StringComparer.Ordinal);
+        foreach (var participant in request.Participants)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var artifact = _runnerResolver.ResolveBotArtifact(participant.BotBuild)
+                ?? throw new InvalidOperationException("The immutable bot build package was not resolved.");
+            artifact.ValidateFor(participant.BotBuild);
+            artifacts.Add(participant.ParticipantId, artifact);
+        }
+
         var session = new Session(request.MatchId, request.SessionId);
         lock (_gate)
         {
@@ -107,6 +110,7 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
         {
             foreach (var participant in request.Participants)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = Path.GetFullPath(_options.StarCraftExecutablePath),
@@ -126,18 +130,15 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
             foreach (var participant in request.Participants)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var resolvedRunnerPath = _runnerResolver.ResolveRunnerExecutable(participant.BotBuild);
-                if (string.IsNullOrWhiteSpace(resolvedRunnerPath))
-                    throw new FileNotFoundException("The immutable bot build runner executable was not resolved.");
-                var runnerPath = Path.GetFullPath(resolvedRunnerPath);
-                if (!File.Exists(runnerPath))
-                    throw new FileNotFoundException("The immutable bot build runner executable was not found.", runnerPath);
+                var artifact = artifacts[participant.ParticipantId];
+                var runnerPath = Path.GetFullPath(artifact.RunnerExecutablePath);
+                var definitionPath = Path.GetFullPath(artifact.BotDefinitionPath);
 
                 var opponent = request.Participants.Single(p => p.ParticipantId != participant.ParticipantId);
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = runnerPath,
-                    WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(runnerPath))!,
+                    WorkingDirectory = Path.GetDirectoryName(runnerPath)!,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
@@ -146,6 +147,9 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
                 AddArgument(startInfo, "--GamePort", participant.GamePort);
                 AddArgument(startInfo, "--StartPort", request.StartPort);
                 AddArgument(startInfo, "--OpponentId", opponent.ParticipantId);
+                // SingularityBot's Runner accepts this existing option and performs strict
+                // BotDefinition.Parse + semantic validation before opening its SC2 connection.
+                startInfo.ArgumentList.Add($"--definition={definitionPath}");
                 if (participant.IsGameHost)
                 {
                     startInfo.ArgumentList.Add("--CreateGame");
@@ -296,7 +300,8 @@ public sealed class Sc2ProcessSessionRuntime : ISc2SessionRuntime, IAsyncDisposa
             throw new InvalidOperationException("Each SC2 process must have a distinct listener port.");
         if (request.Participants.Any(p => p.BotBuild is null || p.GamePort is < 1 or > 65535 ||
             string.IsNullOrWhiteSpace(p.BotBuild.BuildId) ||
-            string.IsNullOrWhiteSpace(p.BotBuild.ContentSha256)))
+            p.BotBuild.ContentSha256 is not { Length: 64 } ||
+            p.BotBuild.ContentSha256.Any(character => !Uri.IsHexDigit(character))))
             throw new InvalidOperationException("SC2 participant launch data is incomplete or invalid.");
         if (request.StartPort is < 1 or > 65530)
             throw new InvalidOperationException("The match-level StartPort cannot reserve its five derived ports.");
