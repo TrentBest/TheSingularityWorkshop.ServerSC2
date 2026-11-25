@@ -83,8 +83,7 @@ public static class Sc2GameSessionHostFactory
                 options.ProcessRuntime.MapId,
                 StringComparison.Ordinal))
             throw new InvalidOperationException(
-                "The trusted ServerApp profile and SC2 process runtime must select the same map.",
-                nameof(options));
+                "The trusted ServerApp profile and SC2 process runtime must select the same map.");
 
         var packageStoreRoot = Path.GetFullPath(options.BotPackageStoreRoot);
         if (!Directory.Exists(packageStoreRoot))
