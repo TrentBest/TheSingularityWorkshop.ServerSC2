@@ -27,6 +27,7 @@ public sealed class FileSystemSc2BotRunnerResolver : ISc2BotRunnerResolver
     private static readonly JsonSerializerOptions ManifestJsonOptions = new()
     {
         PropertyNameCaseInsensitive = false,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         MaxDepth = 16
     };
