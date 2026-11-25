@@ -75,7 +75,7 @@ public static class Sc2GameSessionHostFactory
                 nameof(options));
 
         if (options.ServerProfile.MaximumParticipantsPerMatch != 2)
-            throw new NotSupportedException(
+            throw new InvalidOperationException(
                 "The current process supervisor supports exactly two participants; observer-host topology is not yet integrated.");
 
         if (!string.Equals(
