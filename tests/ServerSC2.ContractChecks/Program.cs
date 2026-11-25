@@ -635,10 +635,11 @@ static void HostFactoryBindsPackageStore()
     Directory.CreateDirectory(store);
     try
     {
-        await using var host = Sc2GameSessionHostFactory.Create(new Sc2GameSessionHostOptions(
+        var host = Sc2GameSessionHostFactory.Create(new Sc2GameSessionHostOptions(
             ValidProfile(), ValidRuntimeOptions(), store));
         Assert(host.Adapter.AdapterVersion == ValidProfile().AdapterVersion,
             "The host factory did not bind the configured ServerApp adapter profile.");
+        host.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
     finally
     {
