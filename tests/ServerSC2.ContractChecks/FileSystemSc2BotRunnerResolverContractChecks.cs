@@ -80,8 +80,7 @@ internal static class FileSystemSc2BotRunnerResolverContractChecks
             throw new InvalidOperationException($"Expected resolver to reject {scenario}.");
         }
         catch (InvalidOperationException exception) when (
-            exception.Message.Contains("payload", StringComparison.OrdinalIgnoreCase) ||
-            exception.Message.Contains("SHA-256", StringComparison.OrdinalIgnoreCase))
+            exception.Message.Contains("Package payload 'bot-definition.json' failed SHA-256 verification.", StringComparison.Ordinal))
         {
             // The resolver rejected the tampered immutable payload.
         }
