@@ -24,8 +24,9 @@ internal static class FileSystemSc2BotRunnerResolverContractChecks
             new { path = "bot-definition.json", sha256 = definitionHash },
             new { path = "runner.bin", sha256 = runnerHash }
         };
-        var canonical = string.Concat(entries.OrderBy(entry => entry.path, StringComparer.Ordinal)
-            .Select(entry => $"{entry.path}\n{entry.sha256.ToLowerInvariant()}\n"));
+        var canonical = "runnerExecutablePath\nrunner.bin\nbotDefinitionPath\nbot-definition.json\n" +
+            string.Concat(entries.OrderBy(entry => entry.path, StringComparer.Ordinal)
+                .Select(entry => $"{entry.path}\n{entry.sha256.ToLowerInvariant()}\n"));
         var packageDigest = Hash(Encoding.UTF8.GetBytes(canonical));
         var packageRoot = Path.Combine(store, botIdentityId, buildId, packageDigest.ToLowerInvariant());
         Directory.CreateDirectory(packageRoot);
