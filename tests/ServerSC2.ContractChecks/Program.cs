@@ -17,6 +17,8 @@ var checks = new (string Name, Action Run)[]
     ("adapter rejects mismatched observed match identity", AdapterRejectsMismatchedObservedMatch),
     ("adapter rejects wrong game before allocating ports", AdapterRejectsWrongGame),
     ("adapter releases a lease when runtime startup fails", AdapterReleasesOnStartupFailure),
+    ("trusted host factory binds the immutable package store resolver", HostFactoryBindsPackageStore),
+    ("trusted host factory rejects unsupported topology and map mismatch", HostFactoryRejectsUnsupportedConfiguration),
     ("observer process plan isolates CreateGame authority", ObserverPlanIsolatesCreateGame),
     ("observer process plan scales to arbitrary participant counts", ObserverPlanScales),
     ("observer process plan rejects invalid build and port boundaries", ObserverPlanRejectsInvalidBoundaries),
@@ -617,6 +619,57 @@ static void Assert(bool condition, string message)
     if (!condition) throw new InvalidOperationException(message);
 }
 
+
+
+static Sc2ProcessRuntimeOptions ValidRuntimeOptions() => new(
+    "C:/SC2/Versions/Base/SC2_x64.exe",
+    "C:/SC2/Versions/Base",
+    "AbyssalReefLE",
+    "C:/SC2/Maps/AbyssalReefLE.SC2Map",
+    TimeSpan.FromSeconds(30),
+    TimeSpan.FromSeconds(10));
+
+static void HostFactoryBindsPackageStore()
+{
+    var store = Path.Combine(Path.GetTempPath(), "server-sc2-host-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(store);
+    try
+    {
+        await using var host = Sc2GameSessionHostFactory.Create(new Sc2GameSessionHostOptions(
+            ValidProfile(), ValidRuntimeOptions(), store));
+        Assert(host.Adapter.AdapterVersion == ValidProfile().AdapterVersion,
+            "The host factory did not bind the configured ServerApp adapter profile.");
+    }
+    finally
+    {
+        Directory.Delete(store, recursive: true);
+    }
+}
+
+static void HostFactoryRejectsUnsupportedConfiguration()
+{
+    var store = Path.Combine(Path.GetTempPath(), "server-sc2-host-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(store);
+    try
+    {
+        var unsupported = ValidProfile() with
+        {
+            MaximumParticipantsPerMatch = 3,
+            GamePortLast = 5011,
+            StartPortLast = 6031
+        };
+        AssertThrows(() => Sc2GameSessionHostFactory.Create(new Sc2GameSessionHostOptions(
+            unsupported, ValidRuntimeOptions(), store)), "exactly two participants");
+
+        var mismatchedRuntime = ValidRuntimeOptions() with { MapId = "DifferentMap" };
+        AssertThrows(() => Sc2GameSessionHostFactory.Create(new Sc2GameSessionHostOptions(
+            ValidProfile(), mismatchedRuntime, store)), "same map");
+    }
+    finally
+    {
+        Directory.Delete(store, recursive: true);
+    }
+}
 
 static MatchAssignment TestAssignment(string gameId = Sc2GameSessionAdapter.StarCraftIIGameId) => new(
     "match-001", "sc2-ladder", gameId, "ladder-rules", "1", "1v1", "0.1.0",
