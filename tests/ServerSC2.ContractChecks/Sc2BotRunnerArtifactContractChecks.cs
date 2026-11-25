@@ -31,13 +31,13 @@ internal static class Sc2BotRunnerArtifactContractChecks
             artifact.ValidateFor(build);
 
             ExpectRejected(() => artifact.ValidateFor(build with { ContentSha256 = new string('b', 64) }),
-                "package digest mismatch");
+                "resolved bot package digest", "package digest mismatch");
             ExpectRejected(() => (artifact with { BotDefinitionSha256 = new string('c', 64) }).ValidateFor(build),
-                "definition payload hash mismatch");
+                "resolved BotDefinition does not match", "definition payload hash mismatch");
             ExpectRejected(() => (artifact with { RunnerExecutableSha256 = "not-a-hash" }).ValidateFor(build),
-                "invalid runner hash");
+                "resolved runner executable SHA-256", "invalid runner hash");
             ExpectRejected(() => (artifact with { BotDefinitionPath = Path.Combine(root, "..", "outside.json") }).ValidateFor(build),
-                "definition path escape");
+                "resolved BotDefinition must remain inside", "definition path escape");
 
             Console.WriteLine("PASS immutable bot package and BotDefinition integrity checks");
         }
@@ -55,19 +55,18 @@ internal static class Sc2BotRunnerArtifactContractChecks
         return Convert.ToHexString(SHA256.HashData(stream));
     }
 
-    private static void ExpectRejected(Action action, string scenario)
+    private static void ExpectRejected(Action action, string expectedMessage, string scenario)
     {
         try
         {
             action();
-            throw new InvalidOperationException($"Expected artifact validation to reject {scenario}.");
         }
         catch (InvalidOperationException exception) when (
-            exception.Message.Contains("immutable", StringComparison.OrdinalIgnoreCase) ||
-            exception.Message.Contains("resolved", StringComparison.OrdinalIgnoreCase) ||
-            exception.Message.Contains("package", StringComparison.OrdinalIgnoreCase))
+            exception.Message.Contains(expectedMessage, StringComparison.OrdinalIgnoreCase))
         {
-            // The contract rejected the invalid package as required.
+            return;
         }
+
+        throw new InvalidOperationException($"Expected artifact validation to reject {scenario}.");
     }
 }
