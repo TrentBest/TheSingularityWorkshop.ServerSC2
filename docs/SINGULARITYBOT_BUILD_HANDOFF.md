@@ -41,11 +41,16 @@ The files collection lists every payload file required by the build, including a
 To compute ContentSha256:
 
 1. Verify each listed file's SHA-256 against its manifest entry.
-2. Sort entries by path using ordinal comparison.
-3. For each entry append UTF-8 text: path, LF, lowercase hexadecimal sha256, LF.
-4. SHA-256 the resulting UTF-8 byte sequence; encode the result as 64 hexadecimal characters.
+2. Validate runnerExecutablePath and botDefinitionPath as normalized relative paths, and require both paths to appear in the files collection.
+3. Begin the canonical UTF-8 payload index with these exact lines, including LF line endings:
+   - runnerExecutablePath
+   - the exact runnerExecutablePath value
+   - botDefinitionPath
+   - the exact botDefinitionPath value
+4. Sort file entries by path using ordinal comparison. For each entry append: path, LF, lowercase hexadecimal sha256, LF.
+5. SHA-256 the resulting UTF-8 byte sequence; encode the result as 64 hexadecimal characters.
 
-The resulting digest must equal both bot-build.json contentSha256 and the admitted BotBuildReference.ContentSha256. The runner and definition paths must each identify a listed payload file. ServerSC2 also independently verifies the runner and definition file hashes before launch.
+The resulting digest must equal both bot-build.json contentSha256 and the admitted BotBuildReference.ContentSha256. Including the two role paths in the digest prevents a manifest from changing which payload is executed as the Runner or loaded as the BotDefinition without changing the build identity. ServerSC2 independently verifies the Runner and definition file hashes before launch.
 
 The package store must be writable only by the trusted build-registration pipeline. A matching digest proves payload integrity; admission and the trusted registry establish which bot identity/build is authorized to use that payload. Never expose the package-store root as a client write location.
 
