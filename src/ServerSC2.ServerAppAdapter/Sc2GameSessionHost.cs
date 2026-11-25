@@ -82,7 +82,7 @@ public static class Sc2GameSessionHostFactory
                 options.ServerProfile.MapId,
                 options.ProcessRuntime.MapId,
                 StringComparison.Ordinal))
-            throw new ArgumentException(
+            throw new InvalidOperationException(
                 "The trusted ServerApp profile and SC2 process runtime must select the same map.",
                 nameof(options));
 
