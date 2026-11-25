@@ -79,6 +79,8 @@ public sealed class FileSystemSc2BotRunnerResolver : ISc2BotRunnerResolver
         if (manifest.Files is null || manifest.Files.Count is < 2 or > 4096)
             throw new InvalidOperationException("The package manifest must declare between 2 and 4096 payload files.");
 
+        var runnerRelativePath = NormalizeRelativePath(manifest.RunnerExecutablePath);
+        var definitionRelativePath = NormalizeRelativePath(manifest.BotDefinitionPath);
         var fileHashes = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var file in manifest.Files)
         {
@@ -94,15 +96,13 @@ public sealed class FileSystemSc2BotRunnerResolver : ISc2BotRunnerResolver
             VerifyHash(fullPath, file.Sha256, normalizedPath);
         }
 
-        var computedDigest = ComputePackageDigest(fileHashes);
-        if (!string.Equals(computedDigest, build.ContentSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("The immutable bot package payload does not match its registered content digest.");
-
-        var runnerRelativePath = NormalizeRelativePath(manifest.RunnerExecutablePath);
-        var definitionRelativePath = NormalizeRelativePath(manifest.BotDefinitionPath);
         if (!fileHashes.TryGetValue(runnerRelativePath, out var runnerHash) ||
             !fileHashes.TryGetValue(definitionRelativePath, out var definitionHash))
             throw new InvalidOperationException("The package manifest must pin both the runner executable and BotDefinition.");
+
+        var computedDigest = ComputePackageDigest(fileHashes, runnerRelativePath, definitionRelativePath);
+        if (!string.Equals(computedDigest, build.ContentSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The immutable bot package payload does not match its registered content digest.");
 
         return new Sc2BotRunnerArtifact(
             packageRoot,
@@ -135,15 +135,20 @@ public sealed class FileSystemSc2BotRunnerResolver : ISc2BotRunnerResolver
 
     private static string NormalizeRelativePath(string path)
     {
-        if (path.Contains('\\') || Path.IsPathRooted(path) ||
+        if (string.IsNullOrWhiteSpace(path) || path.Contains('\\') || Path.IsPathRooted(path) ||
             path.Split('/').Any(segment => segment is "" or "." or ".."))
             throw new InvalidOperationException("Package payload paths must be normalized relative paths.");
         return path;
     }
 
-    private static string ComputePackageDigest(IReadOnlyDictionary<string, string> files)
+    private static string ComputePackageDigest(
+        IReadOnlyDictionary<string, string> files,
+        string runnerExecutablePath,
+        string botDefinitionPath)
     {
         var canonical = new StringBuilder();
+        canonical.Append("runnerExecutablePath\n").Append(runnerExecutablePath).Append('\n');
+        canonical.Append("botDefinitionPath\n").Append(botDefinitionPath).Append('\n');
         foreach (var file in files.OrderBy(pair => pair.Key, StringComparer.Ordinal))
             canonical.Append(file.Key).Append('\n').Append(file.Value.ToLowerInvariant()).Append('\n');
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
