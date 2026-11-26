@@ -13,7 +13,7 @@
 - **SimulationServer** is the target runtime model: Participant A's assigned runner creates the match through its own player SC2 process, each remaining entrant joins through an isolated player process and runner, and an independent observer joins last to collect authoritative evidence. The observer never creates the game or receives a competitor identity. The current production supervisor is still the legacy two-player competitor-host implementation; the observer topology is not yet live-proven.
 - **Experiences** remains the source of reusable, versioned MicroBundles. ServerSC2 may compose approved bundles through FSM_COS; it does not duplicate their domain implementations.
 - **SingularityBot** remains an independently launched player runtime and a bot-authoring foundation. Its strategy and bot-side SC2 protocol adapter do not move into this repository, and it is not a required host dependency.
-- **FSM_COS** composes approved MicroBundles. **FSM_Foundry** executes host-authored workflows. **FSM_API** supplies runtime state/context primitives.
+- **FSM_COS** composes approved MicroBundles. **FSM_Execution** executes host-authored workflows. **FSM_API** supplies runtime state/context primitives.
 
 The first target is a controlled local 1v1 vertical slice. Economy's single-elimination bracket is reusable tournament progression; ladder standings, rating calculations, matchmaking policy, and durable competition orchestration are not implemented by ServerSC2.
 
