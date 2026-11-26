@@ -29,7 +29,7 @@ A valid file is necessary but not sufficient. Repository allowlisting, workflow/
 - A client or bot must never supply executable paths, arbitrary process arguments, bundle IDs, or workflow handlers.
 - Runner text markers such as `SC2_JOINED` or `SC2_RESULT` are diagnostics only; they are not authoritative readiness or match completion evidence.
 - Completion remains fail-closed until host-authoritative terminal results and validated replay evidence agree with immutable participant/build assignments.
-- CiAi owns GitHub Actions evidence provenance and CI verdicts; HeadlessAi receives bounded diagnostic data; Foundry/host owns task lifecycle, budgets, dispatch, and authorization.
+- CiAi owns GitHub Actions evidence provenance and CI verdicts; HeadlessAi receives bounded diagnostic data; Execution/host owns task lifecycle, budgets, dispatch, and authorization.
 - Do not merge PRs, publish NuGet packages, release, deploy, force-push, reset protected refs, change repository settings, or delete branches without explicit owner authorization for that exact action.
 - A green build, successful agent run, accepted artifact, or CiAi recommendation is not owner authorization.
 - Human approval remains a separate host-side boundary.
