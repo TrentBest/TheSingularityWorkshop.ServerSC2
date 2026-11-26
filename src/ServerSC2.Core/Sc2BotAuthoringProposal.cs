@@ -83,8 +83,7 @@ public sealed class Sc2BotAuthoringProposal
             string.IsNullOrWhiteSpace(catalogue.RuntimeCompatibilityId) ||
             string.IsNullOrWhiteSpace(catalogue.RuntimeCompatibilityVersion))
             throw new ArgumentException("The trusted catalogue and runtime compatibility pins are incomplete or invalid.", nameof(catalogue));
-        if (string.Equals(botDefinition.ContractId, matchDefinition.ContractId, StringComparison.Ordinal) &&
-            string.Equals(botDefinition.ContractVersion, matchDefinition.ContractVersion, StringComparison.Ordinal))
+        if (string.Equals(botDefinition.ContractId, matchDefinition.ContractId, StringComparison.Ordinal))
             throw new ArgumentException("BotDefinition and MatchDefinition must use distinct domain contract identities.");
 
         ProposalId = proposalId;
