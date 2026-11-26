@@ -2,9 +2,11 @@ using System.Text.Json;
 using ServerSC2.Core;
 using ServerSC2.ServerAppAdapter;
 using ServerApp.Core;
+using ServerSC2.ContractChecks;
 
 var checks = new (string Name, Action Run)[]
 {
+    ("authoring proposal pins exact build, contracts, catalogue, and payload integrity", Sc2BotAuthoringProposalContractChecks.Run),
     ("valid profile is accepted", ValidProfileIsAccepted),
     ("overlapping port ranges are rejected", OverlappingRangesAreRejected),
     ("insufficient port capacity is rejected", InsufficientCapacityIsRejected),
