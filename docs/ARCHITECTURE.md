@@ -20,7 +20,7 @@ ServerApp (game-neutral competition host)
 
 The observer-host topology is a target architecture, not yet live-SC2-verified. See [OBSERVER_HOST_DESIGN.md](OBSERVER_HOST_DESIGN.md) for process roles, generic bot compatibility, fairness, and proof gates. Current runtime source still implements the earlier two-participant competitor-host path; do not describe it as observer-hosted or format-general until the proof gates close.
 
-FSM_COS composes approved MicroBundles. ServerSC2 configures and supervises the SC2 session. FSM_Foundry remains the workflow executor. Do not conflate bundle composition, process provisioning, and workflow execution.
+FSM_COS composes approved MicroBundles. ServerSC2 configures and supervises the SC2 session. FSM_Execution remains the workflow executor. Do not conflate bundle composition, process provisioning, and workflow execution.
 
 ## Ownership
 
@@ -35,7 +35,7 @@ FSM_COS composes approved MicroBundles. ServerSC2 configures and supervises the 
 | Bot strategy, examples, and optional bot-side SC2 protocol adapter | Each bot implementation; SingularityBot is one toolkit/example |
 | Reusable MicroBundle artifacts | Experiences |
 | Composition of approved bundles | FSM_COS |
-| Host-authored workflow execution | FSM_Foundry |
+| Host-authored workflow execution | FSM_Execution |
 
 ServerSC2 must not copy the generic bot-build registry or implement its own competing matchmaking/rating system. It must not require entrants to use SingularityBot assemblies or strategy. Tournament/ladder progression belongs above this game adapter: reuse Economy's `Competitor`, `Team`, `Competition`, and `SingleEliminationBracket` primitives through ServerApp. Do not treat `CompetitionFormat.Ladder` as proof that a ladder algorithm, standings projection, or rating system already exists; those are separate future capabilities.
 
