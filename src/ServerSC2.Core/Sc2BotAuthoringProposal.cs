@@ -35,13 +35,14 @@ public sealed class Sc2AuthoringDocument
 
         // Reject malformed UTF-8 and non-object JSON while preserving the original bytes.
         _ = new UTF8Encoding(false, true).GetString(jsonUtf8);
-        using var parsed = JsonDocument.Parse(jsonUtf8);
+        var snapshot = jsonUtf8.ToArray();
+        using var parsed = JsonDocument.Parse(snapshot);
         if (parsed.RootElement.ValueKind != JsonValueKind.Object)
             throw new ArgumentException("An authoring document must be a JSON object.", nameof(jsonUtf8));
 
         ContractId = contractId;
         ContractVersion = contractVersion;
-        _jsonUtf8 = jsonUtf8.ToArray();
+        _jsonUtf8 = snapshot;
         Sha256 = Convert.ToHexString(SHA256.HashData(_jsonUtf8));
     }
 
