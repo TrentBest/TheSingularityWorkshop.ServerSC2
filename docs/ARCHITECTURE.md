@@ -55,6 +55,20 @@ Every session is built from an immutable admitted match assignment. The assignme
 
 Each competitor receives a dedicated player SC2 listener and its own runner process. The simulation host is a separate SC2 process and must join as an observer; it is not assigned to any entrant. A match must not become Ready until the observer and every player participant have independently passed protocol-level readiness checks.
 
+## SC2 authoring integration (in progress)
+
+Issue [#2](https://github.com/TrentBest/TheSingularityWorkshop.ServerSC2/issues/2) adds an SC2-specific authoring and management surface without creating a second bot domain or runtime.
+
+- **ServerSC2 owns** the SC2 authoring/session API, authenticated user and session boundaries, proposal persistence/version history, host-side preflight, exact build and runner compatibility checks, and the final revalidation/handoff boundary.
+- **SingularityBot owns** the canonical BotDefinition, MatchDefinition, composition contracts, trusted implementation/race/capability/presentation catalogues, setting schemas, semantic validation, and domain diagnostics. ServerSC2 must consume these contracts rather than duplicate them.
+- **WebPage/WebApp** remains the established browser host for the Experience. The browser editor is an Experience rendered there; it is not a new ServerSC2 web application or a second bot editor/runtime.
+- Browser submissions are declarative proposals only. They cannot supply executable paths, arbitrary types/methods/scripts, trusted validation receipts, runner arguments, or launch permission.
+- Before a proposal can be accepted or launched, the server must resolve its exact build/catalogue/runtime pins from host-owned trusted sources, invoke the authoritative SingularityBot validators, persist a server-owned validation result, and revalidate the immutable snapshot immediately before Runner handoff.
+
+The first transport slice is documented in [AUTHORING_PROPOSAL_CONTRACT.md](AUTHORING_PROPOSAL_CONTRACT.md). It preserves exact UTF-8 BotDefinition and MatchDefinition payloads and binds them to build, catalogue, and runtime compatibility pins with an integrity digest. It is **not** an HTTP API, authentication layer, persistence implementation, trusted catalogue resolver, semantic validator, or launch authorization system. Those pieces must not be claimed as implemented until their server-owned boundaries and contract checks exist.
+
+The integration remains blocked from full schema-driven rendering until SingularityBot publishes the complete versioned authoring catalogue and coherent BotDefinition/MatchDefinition/composition contracts. Do not hard-code a parallel settings catalogue in ServerSC2 to hide that dependency. The browser may display only trusted registered capabilities and must clearly distinguish unavailable/logging-only race modules from playable ones.
+
 ## ServerApp adapter bridge
 
 ServerSC2.ServerAppAdapter implements the game-neutral IGameSessionAdapter contract from ServerApp.Core. It accepts only an admitted immutable assignment, verifies the game and pinned adapter version, maps every entrant build reference and team assignment into typed launch records, and holds a bounded match-scoped port lease for the session lifetime.
