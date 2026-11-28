@@ -113,3 +113,18 @@ Thousands of matches may be possible across a sufficiently large fleet and over 
 ## Current readiness
 
 The existing probe already has an opt-in process bootstrap and passes `-displayMode 0`, but does not yet prove true render suppression, continuous time-series collection, live observer-authoritative match completion, or replay validation on a real SC2 installation. The production runtime is still the legacy two-player implementation. Therefore, this document defines the target experiment architecture; it does not claim that batch bot matches are currently runnable.
+
+
+### Probe audit: current measurement boundary
+
+A source audit of `tools/sc2-probe/sc2_probe.py` on `development` confirms the current opt-in capture is a **post-join snapshot probe**, not a running match recorder:
+
+- `capture_post_join_observations` sends one `GameInfo` request and one `Observation` request per connected role.
+- The observation summary records the SC2 `game_loop`, whether raw data is present, a unit count/list (tag, type, owner, display type, alliance), and the player-result count.
+- The setup path does not issue SC2 `Start` or `Step` requests, does not poll observations over time, and does not request `SaveReplay` or `ReplayInfo`.
+- The probe then closes the WebSocket connections and cleans up its SC2 processes. The captured game-loop value is therefore not evidence of a time series or a completed match.
+- The process launch includes `-displayMode 0`; this remains unverified as render suppression.
+
+This changes the correct first implementation step: **do not add an apparent time-series schema on top of this snapshot and call it match telemetry.** First establish a supported, evidence-backed match-driving lifecycle (Start/Step or a verified real-time mode), identify the authoritative observer connection and safe polling cadence, and capture a genuine progression from initial state through terminal state. Only then should periodic samples be added.
+
+The current snapshot is still useful as a protocol/bootstrap diagnostic and a source for validating field extraction. It must be labelled as a setup snapshot, not an opener performance sample. The next proof should show at least two observations with strictly increasing game-loop values from the same observer session, with the corresponding request/response evidence retained. A later proof must separately establish terminal status, player results, replay save/metadata, and cleanup; none is implied by the snapshot.
